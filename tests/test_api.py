@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import uuid
+
 import pytest
 from httpx import ASGITransport, AsyncClient
 
@@ -55,7 +57,7 @@ class TestChatEndpoint:
     async def test_chat_preserves_conversation_id(
         self, async_client: AsyncClient
     ) -> None:
-        cid = "test-convo-id-123"
+        cid = str(uuid.uuid4())
         async with async_client as client:
             response = await client.post(
                 "/chat",
@@ -110,5 +112,16 @@ class TestChatEndpoint:
             response = await client.post(
                 "/chat",
                 json={},
+            )
+        assert response.status_code == 422
+
+    @pytest.mark.asyncio
+    async def test_chat_rejects_invalid_conversation_id(
+        self, async_client: AsyncClient
+    ) -> None:
+        async with async_client as client:
+            response = await client.post(
+                "/chat",
+                json={"message": "Hello", "conversation_id": "not-a-uuid"},
             )
         assert response.status_code == 422

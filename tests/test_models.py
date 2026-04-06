@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import uuid
+
 import pytest
 from pydantic import ValidationError
 
@@ -32,12 +34,16 @@ class TestChatRequest:
     def test_conversation_id_generated_when_omitted(self) -> None:
         req = ChatRequest(message="Hello")
         assert req.conversation_id is not None
-        assert len(req.conversation_id) == 36  # UUID format
+        assert isinstance(req.conversation_id, uuid.UUID)
 
     def test_conversation_id_preserved_when_provided(self) -> None:
-        cid = "my-custom-id"
+        cid = str(uuid.uuid4())
         req = ChatRequest(message="Hello", conversation_id=cid)
-        assert req.conversation_id == cid
+        assert str(req.conversation_id) == cid
+
+    def test_conversation_id_must_be_uuid(self) -> None:
+        with pytest.raises(ValidationError):
+            ChatRequest(message="Hello", conversation_id="my-custom-id")
 
     def test_valid_request(self) -> None:
         req = ChatRequest(message="What are the admission deadlines?")

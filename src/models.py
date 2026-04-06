@@ -20,7 +20,7 @@ class ChatStatus(str, Enum):
 class ChatRequest(BaseModel):
     """Incoming chat message from the frontend."""
 
-    conversation_id: Optional[str] = Field(
+    conversation_id: Optional[uuid.UUID] = Field(
         default=None,
         description="UUID for an existing conversation; omit to start a new one.",
     )
@@ -36,7 +36,7 @@ class ChatRequest(BaseModel):
         """Generate a conversation_id when the client does not supply one."""
         if self.conversation_id is None:
             # Return a new instance to avoid mutation
-            object.__setattr__(self, "conversation_id", str(uuid.uuid4()))
+            object.__setattr__(self, "conversation_id", uuid.uuid4())
         return self
 
 
