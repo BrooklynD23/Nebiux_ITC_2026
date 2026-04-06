@@ -1,0 +1,37 @@
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env  # Must contain LLM_PROVIDER and appropriate API key (GEMINI_API_KEY or OPENAI_API_KEY)
+    volumes:
+      # Corpus: mount read-only — drop dataset/itc2026_ai_corpus/ on your host first
+      # See dataset/README.md for download instructions.
+      - ./dataset/itc2026_ai_corpus:/app/dataset/itc2026_ai_corpus:ro
+      # Processed outputs persist across container restarts
+      - corpus_data:/app/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 120s   # preprocessing can take a few minutes on first run
+
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+    ports:
+      - "5173:5173"
+    environment:
+      - VITE_API_URL=http://localhost:8000
+    depends_on:
+      backend:
+        condition: service_healthy
+
+volumes:
+  corpus_data:
+    driver: local

@@ -1,0 +1,51 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+dist/
+build/
+*.egg
+.eggs/
+venv/
+.venv/
+env/
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Data outputs (regeneratable)
+data/cleaned/
+data/indexes/
+data/analytics.db
+
+# Node/Frontend
+node_modules/
+frontend/dist/
+frontend/build/
+.next/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Testing
+.coverage
+htmlcov/
+.pytest_cache/
+
+# Corpus (too large for git — see dataset/README.md for setup instructions)
+dataset/itc2026_ai_corpus/
+
+# Docker
+docker-volumes/

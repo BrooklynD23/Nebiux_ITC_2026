@@ -1,0 +1,39 @@
+# Normalize all text files to LF on commit.
+# This prevents CRLF/LF warnings on Windows and ensures consistent line endings
+# across WSL2, Windows, and macOS contributors.
+
+* text=auto eol=lf
+
+# Force LF for these types regardless of OS
+*.py    text eol=lf
+*.ts    text eol=lf
+*.tsx   text eol=lf
+*.js    text eol=lf
+*.jsx   text eol=lf
+*.json  text eol=lf
+*.md    text eol=lf
+*.yml   text eol=lf
+*.yaml  text eol=lf
+*.toml  text eol=lf
+*.cfg   text eol=lf
+*.ini   text eol=lf
+*.sh    text eol=lf
+*.env   text eol=lf
+*.txt   text eol=lf
+*.css   text eol=lf
+*.html  text eol=lf
+
+# Shell scripts must always be LF or they break inside containers
+*.sh    text eol=lf
+
+# Treat binary files as binary — never touch line endings
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.ico   binary
+*.woff  binary
+*.woff2 binary
+*.ttf   binary
+*.eot   binary
+*.db    binary
+*.sqlite binary

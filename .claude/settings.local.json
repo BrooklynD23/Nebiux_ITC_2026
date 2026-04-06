@@ -1,0 +1,23 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(find /mnt/c/Users/DangT/curseforge/Downloads/Nebiux_ITC_2026 -type f \\\\\\(-name *.py -o -name *.js -o -name *.jsx -o -name *.ts -o -name *.tsx -o -name *.json -o -name package.json -o -name requirements.txt \\\\\\))",
+      "Bash(find /mnt/c/Users/DangT/curseforge/Downloads/Nebiux_ITC_2026 -type f \\\\\\(-name README* -o -name *.txt -o -name *metadata* -o -name *corpus* \\\\\\))",
+      "Bash(head:*)",
+      "Bash(while read:*)",
+      "Bash(do echo:*)",
+      "Read(//mnt/c/Users/DangT/curseforge/Downloads/Nebiux_ITC_2026/**)",
+      "Bash(done)",
+      "Bash(find /mnt/c/Users/DangT/curseforge/Downloads/Nebiux_ITC_2026 -type f \\\\\\(-name *.py -o -name *.js -o -name *.jsx -o -name *.ts -o -name *.tsx -o -name *.html -o -name Dockerfile -o -name Makefile \\\\\\))",
+      "Bash(shuf)",
+      "Bash(git init:*)",
+      "Bash(git branch:*)",
+      "WebFetch(domain:ai.google.dev)",
+      "WebFetch(domain:www.aifreeapi.com)",
+      "WebFetch(domain:openai.com)",
+      "WebFetch(domain:pricepertoken.com)",
+      "WebFetch(domain:discuss.ai.google.dev)",
+      "WebFetch(domain:findskill.ai)"
+    ]
+  }
+}
