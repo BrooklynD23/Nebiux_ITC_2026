@@ -25,7 +25,11 @@ async def chat(request: ChatRequest) -> ChatResponse:
     try:
         response = await run_tool_loop(
             message=request.message,
-            conversation_id=request.conversation_id,
+            conversation_id=(
+                str(request.conversation_id)
+                if request.conversation_id is not None
+                else None
+            ),
         )
         return response
     except Exception:
