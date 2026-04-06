@@ -1,0 +1,21 @@
+/* === Chat Window Layout === */
+.chat-window {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+.chat-window__messages {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px 0;
+}
+
+/* === Message List === */
+.message-list {
+  display: flex;
+  flex-direction: column;
+}
