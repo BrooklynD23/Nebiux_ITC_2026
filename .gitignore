@@ -17,8 +17,10 @@ env/
 .env.local
 .env.*.local
 
-# Data outputs (regeneratable)
+# Data outputs (regeneratable via scripts/preprocess/run_pipeline.py)
 data/cleaned/
+data/metadata.json
+data/filter_report.json
 data/indexes/
 data/analytics.db
 
