@@ -46,12 +46,16 @@ MIN_CONTENT_RATIO = 0.3
 
 _REDIRECT_PATTERNS: list[re.Pattern[str]] = [
     re.compile(r"you\s*(?:are|will)\s*(?:be\s*)?redirect", re.IGNORECASE),
+    re.compile(r"being redirected", re.IGNORECASE),
+    re.compile(r"will redirect you to", re.IGNORECASE),
     re.compile(r"page\s*(?:has\s*)?moved", re.IGNORECASE),
+    re.compile(r"has moved to", re.IGNORECASE),
     re.compile(r"this page has been (?:moved|relocated)", re.IGNORECASE),
     re.compile(r"redirect(?:ing)?\s*(?:to|\.\.\.)", re.IGNORECASE),
     re.compile(r"moved permanently", re.IGNORECASE),
     re.compile(r"301\s*redirect", re.IGNORECASE),
     re.compile(r"click\s*here\s*if\s*(?:you\s*are\s*)?not\s*redirect", re.IGNORECASE),
+    re.compile(r"please visit\s+<https?://", re.IGNORECASE),
     re.compile(
         r"http-equiv\s*=\s*[\"']?refresh", re.IGNORECASE
     ),
@@ -63,10 +67,12 @@ _LOGIN_PATTERNS: list[re.Pattern[str]] = [
     re.compile(r"bronco\s*direct\s*login", re.IGNORECASE),
     re.compile(r"sso\s*login", re.IGNORECASE),
     re.compile(r"cas\s*login", re.IGNORECASE),
+    re.compile(r"cas\.cpp\.edu/cas/login", re.IGNORECASE),
     re.compile(r"authentication\s*required", re.IGNORECASE),
     re.compile(r"log\s*in\s*to\s*(?:continue|access|view)", re.IGNORECASE),
     re.compile(r"sign\s*in\s*to\s*(?:continue|access|view)", re.IGNORECASE),
     re.compile(r"login\s*required", re.IGNORECASE),
+    re.compile(r"please\s+(?:log\s*in|sign\s*in)\s+to\s+continue", re.IGNORECASE),
 ]
 
 _LINK_RE = re.compile(r"\[([^\]]*)\]\(([^)]*)\)")
@@ -76,6 +82,8 @@ def _word_count(text: str) -> int:
     """Count words in text, excluding markdown syntax."""
     # Remove markdown links but keep link text
     clean = _LINK_RE.sub(r"\1", text)
+    # Remove decorative images
+    clean = re.sub(r"!\[.*?\]\(.*?\)", "", clean)
     # Remove markdown formatting
     clean = re.sub(r"[#*_`~>|]", "", clean)
     # Remove horizontal rules
@@ -92,12 +100,16 @@ def _is_redirect(raw_content: str) -> bool:
     return False
 
 
-def _is_login_gated(raw_content: str) -> bool:
-    """Check if the raw page content indicates a login gate."""
-    for pattern in _LOGIN_PATTERNS:
-        if pattern.search(raw_content):
-            return True
-    return False
+def _is_login_gated(raw_content: str, cleaned_content: str) -> bool:
+    """Check if the page is login gated.
+
+    If a login signal appears but the cleaned page still has substantial
+    content, it likely has a public page with an incidental login link.
+    """
+    has_login_signal = any(pattern.search(raw_content) for pattern in _LOGIN_PATTERNS)
+    if not has_login_signal:
+        return False
+    return _word_count(cleaned_content) < MIN_WORD_COUNT
 
 
 def _is_low_value_hub(cleaned_content: str) -> bool:
@@ -111,6 +123,8 @@ def _is_low_value_hub(cleaned_content: str) -> bool:
         return True
 
     link_lines = 0
+    content_lines = 0
+    heading_lines = 0
     for line in lines:
         stripped = line.strip()
         # Lines that are just a markdown link or start with bullet + link
@@ -119,9 +133,18 @@ def _is_low_value_hub(cleaned_content: str) -> bool:
             # If removing links leaves almost nothing, it's a link line
             if len(link_text) < 10:
                 link_lines += 1
+        elif stripped.startswith("#"):
+            heading_lines += 1
+        elif len(stripped) > 20:
+            content_lines += 1
 
-    # If more than 70% of lines are link-only, it's a hub
-    if len(lines) > 0 and link_lines / len(lines) > 0.7:
+    total = link_lines + content_lines + heading_lines
+    if total == 0:
+        return True
+
+    # If more than 70% of the relevant lines are link-heavy and there is
+    # very little substantive text, it's a hub.
+    if total > 0 and link_lines / total > 0.7 and content_lines < 3:
         return True
 
     return False
@@ -156,7 +179,7 @@ def filter_page(
     if _is_redirect(raw_content):
         return FilterResult(keep=False, reason=DiscardReason.REDIRECT)
 
-    if _is_login_gated(raw_content):
+    if _is_login_gated(raw_content, cleaned_content):
         return FilterResult(keep=False, reason=DiscardReason.LOGIN_GATED)
 
     # Check cleaned content
@@ -165,11 +188,11 @@ def filter_page(
     if not stripped:
         return FilterResult(keep=False, reason=DiscardReason.BOILERPLATE_ONLY)
 
+    if _is_low_value_hub(stripped):
+        return FilterResult(keep=False, reason=DiscardReason.LOW_VALUE_HUB)
+
     wc = _word_count(stripped)
     if wc < MIN_WORD_COUNT:
         return FilterResult(keep=False, reason=DiscardReason.TOO_SHORT)
-
-    if _is_low_value_hub(stripped):
-        return FilterResult(keep=False, reason=DiscardReason.LOW_VALUE_HUB)
 
     return FilterResult(keep=True)

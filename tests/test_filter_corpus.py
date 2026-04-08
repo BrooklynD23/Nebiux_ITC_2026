@@ -79,6 +79,26 @@ HUB_PAGE_CLEANED = """\
 [Parking](https://www.cpp.edu/parking)
 """
 
+LOGIN_WITH_CONTENT_RAW = """\
+Please sign in to continue.
+
+# Department Page
+
+This department has a login link for staff at cas.cpp.edu/cas/login but the public
+content is substantial and describes our programs extensively. We have many programs
+including widget engineering and advanced gizmo design. Students can apply for fall
+admission. Our faculty are committed to excellence in teaching and research.
+"""
+
+LOGIN_WITH_CONTENT_CLEANED = """\
+# Department Page
+
+This department has a login link for staff at cas.cpp.edu/cas/login but the public
+content is substantial and describes our programs extensively. We have many programs
+including widget engineering and advanced gizmo design. Students can apply for fall
+admission. Our faculty are committed to excellence in teaching and research.
+"""
+
 
 class TestFilterPage:
     """Test suite for filter_page function."""
@@ -121,6 +141,14 @@ class TestFilterPage:
         result = filter_page(raw, "")
         assert result.keep is False
         assert result.reason == DiscardReason.LOGIN_GATED
+
+    def test_login_signal_with_substantial_content_kept(self) -> None:
+        result = filter_page(
+            LOGIN_WITH_CONTENT_RAW,
+            LOGIN_WITH_CONTENT_CLEANED,
+        )
+        assert result.keep is True
+        assert result.reason is None
 
     def test_boilerplate_only(self) -> None:
         result = filter_page("some raw content", EMPTY_CLEANED)

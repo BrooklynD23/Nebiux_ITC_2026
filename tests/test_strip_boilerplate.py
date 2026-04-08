@@ -95,6 +95,49 @@ across six colleges. Application deadlines vary by program.
 3. Submit test scores if required
 """
 
+CPP_CHROME_PAGE = """\
+[Skip to content]
+
+[Cal Poly Pomona]
+
+Toggle Menu
+
+[apply]
+[visit]
+[info]
+[mycpp]
+
+![Open search box](/common/green-and-gold/assets/icons/nav/search-dark-green.svg)
+![menu](/common/green-and-gold/assets/icons/nav/menu.svg)
+
+# Department of Example Studies
+
+The Department of Example Studies offers outstanding programs in widget engineering.
+
+Menu
+
+- [Page Home](/dept/index.shtml)
+- [About](/dept/about.shtml)
+- [Programs](/dept/programs.shtml)
+- [Contact](/dept/contact.shtml)
+
+## Programs
+
+Students can choose from several degree paths.
+
+![Ripped green paper.](/common/green-and-gold/assets/images/green-rip.svg)
+
+[Apply](https://www.cpp.edu/apply/)
+[Maps](https://maps.cpp.edu/)
+[Visit](https://www.cpp.edu/outreach/tours.shtml)
+[Contact Us](https://www.cpp.edu/contact.shtml)
+
+[Feedback](https://www.cpp.edu/website-feedback.shtml)
+[Privacy](https://calstate.policystat.com/policy/18808065/latest/#autoid-z2p98)
+[Accessibility](https://www.cpp.edu/accessibility.shtml)
+[Document Readers](https://www.cpp.edu/file-viewers.shtml)
+"""
+
 
 class TestStripBoilerplate:
     """Test suite for strip_boilerplate function."""
@@ -190,3 +233,19 @@ class TestStripBoilerplate:
         result = strip_boilerplate(content)
         assert "Copyright" not in result.content
         assert "# Page" in result.content
+
+    def test_cpp_chrome_page_removes_duplicate_nav_and_footer(self) -> None:
+        result = strip_boilerplate(CPP_CHROME_PAGE)
+        assert "[Skip to content]" not in result.content
+        assert "Toggle Menu" not in result.content
+        assert "[apply]" not in result.content
+        assert "Open search box" not in result.content
+        assert "Menu" not in result.content
+        assert "- [Page Home](/dept/index.shtml)" not in result.content
+        assert "Ripped green paper" not in result.content
+        assert "[Feedback]" not in result.content
+        assert "[Privacy]" not in result.content
+        assert "[Accessibility]" not in result.content
+        assert "[Document Readers]" not in result.content
+        assert "# Department of Example Studies" in result.content
+        assert "Students can choose from several degree paths." in result.content

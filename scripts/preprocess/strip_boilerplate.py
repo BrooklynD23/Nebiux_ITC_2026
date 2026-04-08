@@ -9,7 +9,7 @@ tables, lists, and other meaningful content.
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 
 @dataclass(frozen=True)
@@ -31,10 +31,18 @@ _NAV_PATTERNS: list[re.Pattern[str]] = [
     re.compile(r"^\s*\[skip to (?:main )?content\]", re.IGNORECASE),
     re.compile(r"^\s*\[skip navigation\]", re.IGNORECASE),
     re.compile(r"^\s*toggle (?:menu|navigation)", re.IGNORECASE),
+    re.compile(r"^\s*menu\s*$", re.IGNORECASE),
     re.compile(r"^\s*\[menu\]", re.IGNORECASE),
     re.compile(r"^\s*\[search\]\s*$", re.IGNORECASE),
     re.compile(r"^\s*\[cal poly pomona\]", re.IGNORECASE),
     re.compile(r"^\s*\[cpp\]", re.IGNORECASE),
+    re.compile(r"^\s*(?:\[[^\]]+\]\([^)]+\)\s*){2,}$", re.IGNORECASE),
+    re.compile(r"^\s*\[apply\]", re.IGNORECASE),
+    re.compile(r"^\s*\[visit\]", re.IGNORECASE),
+    re.compile(r"^\s*\[info\]", re.IGNORECASE),
+    re.compile(r"^\s*\[give\]", re.IGNORECASE),
+    re.compile(r"^\s*\[mycpp\]", re.IGNORECASE),
+    re.compile(r"^\s*\[commencement\]", re.IGNORECASE),
     re.compile(r"^\s*main navigation", re.IGNORECASE),
     re.compile(r"^\s*primary navigation", re.IGNORECASE),
     re.compile(r"^\s*secondary navigation", re.IGNORECASE),
@@ -52,11 +60,13 @@ _FOOTER_PATTERNS: list[re.Pattern[str]] = [
     re.compile(r"^\s*3801 west temple", re.IGNORECASE),
     re.compile(r"^\s*pomona,?\s*ca\s*91768", re.IGNORECASE),
     re.compile(r"^\s*\(909\)\s*\d{3}[\-\s]\d{4}", re.IGNORECASE),
+    re.compile(r"^\s*feedback", re.IGNORECASE),
     re.compile(r"^\s*privacy\s*(?:policy)?", re.IGNORECASE),
     re.compile(r"^\s*accessibility", re.IGNORECASE),
     re.compile(r"^\s*title\s*ix", re.IGNORECASE),
     re.compile(r"^\s*annual\s*security\s*report", re.IGNORECASE),
     re.compile(r"^\s*consumer\s*information", re.IGNORECASE),
+    re.compile(r"^\s*document readers", re.IGNORECASE),
 ]
 
 # Social media patterns
@@ -70,6 +80,10 @@ _SOCIAL_PATTERNS: list[re.Pattern[str]] = [
     re.compile(r"^\s*connect with us", re.IGNORECASE),
     re.compile(r"^\s*social media", re.IGNORECASE),
     re.compile(r"^\s*share\s*(?:this|page)?:?\s*$", re.IGNORECASE),
+    re.compile(
+        r"^\s*\[!\[(?:instagram|linkedin|youtube|facebook|x)\s+opens a new window\]",
+        re.IGNORECASE,
+    ),
 ]
 
 # Cookie / privacy banner patterns
@@ -132,6 +146,11 @@ _BLOCK_MARKERS: list[re.Pattern[str]] = [
 # ---------------------------------------------------------------------------
 
 _LINK_RE = re.compile(r"\[([^\]]*)\]\(([^)]*)\)")
+_DECORATIVE_IMAGE_RE = re.compile(
+    r"^\s*(?:!\[.*(?:search|menu|close|logo|ripped).*?\]\(.*\)"
+    r"|\*\s+\[!\[.*(?:instagram|linkedin|youtube|facebook|x).*\]\(.*\)\]\(.*\))",
+    re.IGNORECASE,
+)
 
 
 def _is_link_heavy_line(line: str) -> bool:
@@ -145,6 +164,48 @@ def _is_link_heavy_line(line: str) -> bool:
     # If the link text + brackets constitute most of the line
     link_text_len = len(match.group(0))
     return link_text_len / len(stripped) > 0.7
+
+
+def _is_decorative_image_line(line: str) -> bool:
+    """Detect decorative image-only lines from CPP chrome."""
+    return bool(_DECORATIVE_IMAGE_RE.search(line.strip()))
+
+
+def _reflow_paragraphs(text: str) -> str:
+    """Join hard-wrapped prose while preserving markdown structure."""
+    lines = text.split("\n")
+    output: list[str] = []
+    paragraph_parts: list[str] = []
+
+    def flush_paragraph() -> None:
+        if paragraph_parts:
+            output.append(" ".join(paragraph_parts))
+            paragraph_parts.clear()
+
+    for line in lines:
+        stripped = line.strip()
+        if not stripped:
+            flush_paragraph()
+            output.append("")
+            continue
+
+        is_structural = (
+            stripped.startswith("#")
+            or stripped.startswith("|")
+            or stripped.startswith("- ")
+            or stripped.startswith("* ")
+            or stripped.startswith("+ ")
+            or re.match(r"^\d+\.\s+", stripped) is not None
+        )
+
+        if is_structural:
+            flush_paragraph()
+            output.append(stripped)
+        else:
+            paragraph_parts.append(stripped)
+
+    flush_paragraph()
+    return "\n".join(output)
 
 
 # ---------------------------------------------------------------------------
@@ -189,6 +250,7 @@ def _is_boilerplate_block(block: list[str]) -> bool:
 
     boilerplate_count = sum(
         1 for line in block if _matches_any(line, ALL_BOILERPLATE_PATTERNS)
+        or _is_decorative_image_line(line)
     )
 
     # If more than half the block is boilerplate patterns
@@ -269,6 +331,7 @@ def strip_boilerplate(raw_content: str) -> StrippedResult:
                 line
                 for line in block
                 if not _matches_any(line, ALL_BOILERPLATE_PATTERNS)
+                and not _is_decorative_image_line(line)
             ]
             if cleaned_block:
                 kept_blocks.append(cleaned_block)
@@ -283,7 +346,8 @@ def strip_boilerplate(raw_content: str) -> StrippedResult:
             cleaned_lines.append("")
 
     # Final cleanup: remove leading/trailing blank lines
-    content = "\n".join(cleaned_lines).strip()
+    content = re.sub(r"\n{4,}", "\n\n\n", "\n".join(cleaned_lines)).strip()
+    content = _reflow_paragraphs(content)
 
     return StrippedResult(
         content=content,
