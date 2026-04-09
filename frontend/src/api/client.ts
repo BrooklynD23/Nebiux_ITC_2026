@@ -14,7 +14,9 @@ const USE_MOCK: boolean =
  * Leave empty (default) for local dev — Vite proxy forwards /chat to localhost:8000.
  * Set to the full origin (e.g. https://api.example.com) for production / vite preview.
  */
-const API_BASE: string = (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? '';
+const API_BASE: string = (
+  (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? ''
+).replace(/\/$/, '');
 
 /**
  * Send a chat message and return the API response.
