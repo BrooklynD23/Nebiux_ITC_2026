@@ -20,7 +20,9 @@ from typing import Optional
 
 logger = logging.getLogger(__name__)
 
-GOLDEN_CASES_PATH = Path(__file__).resolve().parent.parent.parent / "data" / "eval" / "golden_cases.json"
+GOLDEN_CASES_PATH = (
+    Path(__file__).resolve().parent.parent.parent / "data" / "eval" / "golden_cases.json"
+)
 
 VALID_STATUSES = {"answered", "not_found", "error"}
 VALID_CATEGORIES = {"factual", "follow-up", "out-of-scope", "adversarial"}
@@ -46,10 +48,9 @@ class EvalResult:
     case_id: str
     passed: bool
     expected_status: str
-    skipped: bool = False
-    actual_status: Optional[str] = None
-    citation_check: Optional[bool] = None
-    error: Optional[str] = None
+    actual_status: Optional[str]
+    citation_check: Optional[bool]
+    error: Optional[str]
 
 
 def load_golden_cases(path: Path) -> list[EvalCase]:
@@ -77,33 +78,38 @@ def load_golden_cases(path: Path) -> list[EvalCase]:
             logger.warning("Case %s has unknown category: %s", case.id, case.category)
 
         if case.expected_status not in VALID_STATUSES:
-            logger.warning("Case %s has unknown expected_status: %s", case.id, case.expected_status)
+            logger.warning(
+                "Case %s has unknown expected_status: %s",
+                case.id,
+                case.expected_status,
+            )
 
         cases.append(case)
 
     return cases
 
 
-def run_case(case: EvalCase, api_url: str, conversation_id: Optional[str] = None) -> EvalResult:
+def run_case(
+    case: EvalCase,
+    api_url: str,
+    conversation_id: Optional[str] = None,
+) -> EvalResult:
     """
     Run a single eval case against the API.
 
     Sprint 1: Returns a placeholder result (API not yet available).
     Sprint 2: Will send the query and compare response status + citations.
     """
-    # TODO(sprint-2): Replace with actual API call
-    # import httpx
-    # response = httpx.post(f"{api_url}/chat", json={...})
+    _ = api_url, conversation_id
     logger.info("  [SKIP] %s — API not yet available (Sprint 1 skeleton)", case.id)
 
     return EvalResult(
         case_id=case.id,
         passed=False,
-        skipped=True,
         expected_status=case.expected_status,
         actual_status=None,
         citation_check=None,
-        error=None,
+        error="Sprint 1 skeleton — no API call made",
     )
 
 
@@ -111,24 +117,17 @@ def print_summary(results: list[EvalResult]) -> None:
     """Print a summary table of eval results."""
     total = len(results)
     passed = sum(1 for r in results if r.passed)
-    skipped = sum(1 for r in results if r.skipped)
-    failed = total - passed - skipped
+    failed = total - passed
 
     logger.info("")
     logger.info("=== Evaluation Summary ===")
-    logger.info("Total:   %d", total)
-    logger.info("Passed:  %d", passed)
-    logger.info("Skipped: %d", skipped)
-    logger.info("Failed:  %d", failed)
+    logger.info("Total:  %d", total)
+    logger.info("Passed: %d", passed)
+    logger.info("Failed: %d", failed)
     logger.info("")
 
     for result in results:
-        if result.skipped:
-            status_icon = "SKIP"
-        elif result.passed:
-            status_icon = "PASS"
-        else:
-            status_icon = "FAIL"
+        status_icon = "PASS" if result.passed else "FAIL"
         logger.info(
             "  [%s] %s — expected=%s actual=%s%s",
             status_icon,
@@ -162,7 +161,6 @@ def main() -> None:
     logger.info("Loaded %d cases", len(cases))
     logger.info("")
 
-    # Group by category for reporting
     by_category: dict[str, list[EvalCase]] = {}
     for case in cases:
         by_category.setdefault(case.category, []).append(case)
@@ -182,8 +180,7 @@ def main() -> None:
 
     print_summary(results)
 
-    # Exit with non-zero only if any case actually failed (skipped cases are not failures)
-    if any(not r.passed and not r.skipped for r in results):
+    if any(not r.passed for r in results):
         sys.exit(1)
 
 

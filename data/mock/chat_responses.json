@@ -1,0 +1,78 @@
+[
+  {
+    "_description": "Factual answer with 2 citations",
+    "conversation_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+    "status": "answered",
+    "answer_markdown": "Cal Poly Pomona accepts **fall admission** applications from **October 1 through December 15**. Applicants must meet CSU eligibility requirements including completion of the A-G course pattern and minimum GPA thresholds.",
+    "citations": [
+      {
+        "title": "Freshmen Admissions Requirements",
+        "url": "https://www.cpp.edu/admissions/freshmen/index.shtml",
+        "snippet": "Cal Poly Pomona accepts applications for fall admission from October 1 through December 15. Applicants must meet CSU eligibility requirements."
+      },
+      {
+        "title": "CSU Admissions Eligibility",
+        "url": "https://www.cpp.edu/admissions/eligibility/index.shtml",
+        "snippet": "Eligibility is determined by completion of the A-G subject requirements, a qualifying eligibility index, and ACT/SAT scores (if applicable)."
+      }
+    ]
+  },
+  {
+    "_description": "Follow-up answer referencing prior context",
+    "conversation_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+    "status": "answered",
+    "answer_markdown": "Yes, Cal Poly Pomona is **test-optional** for the 2026-2027 admission cycle. You do not need to submit SAT or ACT scores, though doing so may strengthen your application.",
+    "citations": [
+      {
+        "title": "Freshmen Admissions Requirements",
+        "url": "https://www.cpp.edu/admissions/freshmen/index.shtml",
+        "snippet": "Cal Poly Pomona is test-optional for the current admission cycle. Submitting SAT/ACT scores is not required."
+      }
+    ]
+  },
+  {
+    "_description": "Not-found response for out-of-scope question",
+    "conversation_id": "b2c3d4e5-f6a7-8901-bcde-f12345678901",
+    "status": "not_found",
+    "answer_markdown": "I'm sorry, I can only answer questions about Cal Poly Pomona. I don't have information about UCLA's admission requirements.",
+    "citations": []
+  },
+  {
+    "_description": "Error response",
+    "conversation_id": "c3d4e5f6-a7b8-9012-cdef-123456789012",
+    "status": "error",
+    "answer_markdown": "An error occurred while processing your request. Please try again later.",
+    "citations": []
+  },
+  {
+    "_description": "Response with markdown formatting (headers, lists, bold)",
+    "conversation_id": "d4e5f6a7-b8c9-0123-defa-234567890123",
+    "status": "answered",
+    "answer_markdown": "## Computer Science at CPP\n\nThe **Computer Science B.S.** program at Cal Poly Pomona emphasizes hands-on learning. Key highlights:\n\n- **Units required:** 180 quarter units\n- **Core areas:** algorithms, data structures, operating systems, software engineering\n- **Senior project:** required capstone project\n- **Learn-by-doing:** extensive lab-based coursework\n\nFor more information visit the [CS department page](https://www.cpp.edu/sci/computer-science/index.shtml).",
+    "citations": [
+      {
+        "title": "Computer Science B.S. Program",
+        "url": "https://www.cpp.edu/sci/computer-science/index.shtml",
+        "snippet": "The Computer Science program at Cal Poly Pomona emphasizes hands-on learning through lab courses and senior projects. Students complete 180 quarter units."
+      }
+    ]
+  },
+  {
+    "_description": "Financial aid answer with multiple sources",
+    "conversation_id": "e5f6a7b8-c9d0-1234-efab-345678901234",
+    "status": "answered",
+    "answer_markdown": "CPP offers several types of financial aid:\n\n1. **Grants** (Cal Grant, Pell Grant)\n2. **Scholarships** (merit-based and need-based)\n3. **Loans** (Federal Direct Loans)\n4. **Work-Study** programs\n\nYou must file the **FAFSA** or **CA Dream Act Application** annually by **March 2** for priority consideration.",
+    "citations": [
+      {
+        "title": "Financial Aid and Scholarships",
+        "url": "https://www.cpp.edu/financial-aid/index.shtml",
+        "snippet": "CPP offers grants, scholarships, loans, and work-study programs. Students must file the FAFSA or CA Dream Act Application annually."
+      },
+      {
+        "title": "Financial Aid Deadlines",
+        "url": "https://www.cpp.edu/financial-aid/deadlines/index.shtml",
+        "snippet": "Priority filing deadline for the FAFSA is March 2. Late applications are accepted but may result in reduced aid availability."
+      }
+    ]
+  }
+]
