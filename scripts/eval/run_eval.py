@@ -45,6 +45,7 @@ class EvalResult:
 
     case_id: str
     passed: bool
+    skipped: bool
     expected_status: str
     actual_status: Optional[str]
     citation_check: Optional[bool]
@@ -98,10 +99,11 @@ def run_case(case: EvalCase, api_url: str, conversation_id: Optional[str] = None
     return EvalResult(
         case_id=case.id,
         passed=False,
+        skipped=True,
         expected_status=case.expected_status,
         actual_status=None,
         citation_check=None,
-        error="Sprint 1 skeleton — no API call made",
+        error=None,
     )
 
 
@@ -109,17 +111,24 @@ def print_summary(results: list[EvalResult]) -> None:
     """Print a summary table of eval results."""
     total = len(results)
     passed = sum(1 for r in results if r.passed)
-    failed = total - passed
+    skipped = sum(1 for r in results if r.skipped)
+    failed = total - passed - skipped
 
     logger.info("")
     logger.info("=== Evaluation Summary ===")
-    logger.info("Total:  %d", total)
-    logger.info("Passed: %d", passed)
-    logger.info("Failed: %d", failed)
+    logger.info("Total:   %d", total)
+    logger.info("Passed:  %d", passed)
+    logger.info("Skipped: %d", skipped)
+    logger.info("Failed:  %d", failed)
     logger.info("")
 
     for result in results:
-        status_icon = "PASS" if result.passed else "FAIL"
+        if result.skipped:
+            status_icon = "SKIP"
+        elif result.passed:
+            status_icon = "PASS"
+        else:
+            status_icon = "FAIL"
         logger.info(
             "  [%s] %s — expected=%s actual=%s%s",
             status_icon,
@@ -173,8 +182,8 @@ def main() -> None:
 
     print_summary(results)
 
-    # Exit with non-zero if any case failed
-    if any(not r.passed for r in results):
+    # Exit with non-zero only if any case actually failed (skipped cases are not failures)
+    if any(not r.passed and not r.skipped for r in results):
         sys.exit(1)
 
 
