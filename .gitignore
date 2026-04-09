@@ -51,3 +51,4 @@ dataset/itc2026_ai_corpus/
 
 # Docker
 docker-volumes/
+.worktrees/
