@@ -45,11 +45,11 @@ class EvalResult:
 
     case_id: str
     passed: bool
-    skipped: bool
     expected_status: str
-    actual_status: Optional[str]
-    citation_check: Optional[bool]
-    error: Optional[str]
+    skipped: bool = False
+    actual_status: Optional[str] = None
+    citation_check: Optional[bool] = None
+    error: Optional[str] = None
 
 
 def load_golden_cases(path: Path) -> list[EvalCase]:
