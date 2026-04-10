@@ -67,7 +67,7 @@ docker compose up --build
 What happens on first boot:
 
 1. the backend verifies the raw corpus
-2. the preprocessing pipeline writes `data/cleaned/`, `data/metadata.json`, and `data/filter_report.json`
+2. the preprocessing pipeline writes `data/cleaned/`, `data/metadata.json`, `data/filter_report.json`, `data/freshness_manifest.json`, and `data/conflict_review.md`
 3. the index build writes `data/chunks.jsonl` and `data/indexes/whoosh/`
 4. the frontend starts on `http://localhost:5173`
 

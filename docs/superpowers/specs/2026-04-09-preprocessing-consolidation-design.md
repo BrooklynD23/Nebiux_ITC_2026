@@ -4,7 +4,7 @@
 **Issue:** GitHub #18 (Setup Architecture) — preprocessing consolidation thread
 **Status:** Approved
 
-> Current implementation note: `scripts/preprocess/freshness.py`, `scripts/preprocess/conflicts.py`, and their tests now exist in the production tree, but `scripts/preprocess/run_pipeline.py` still emits only `data/cleaned/`, `data/metadata.json`, and `data/filter_report.json`. The freshness/conflict artifact wiring described below remains the next integration step.
+> Current implementation note: `scripts/preprocess/freshness.py`, `scripts/preprocess/conflicts.py`, and their tests now exist in the production tree, and `scripts/preprocess/run_pipeline.py` now emits `data/freshness_manifest.json` and `data/conflict_review.md` alongside the existing cleaned corpus and metadata artifacts.
 
 ## Problem
 
@@ -157,7 +157,7 @@ Update `health` endpoint in `src/api/main.py` to report freshness/conflict artif
 - `data/conflict_review.md`
 - `pp_out/`
 
-**Update `CLAUDE.md` and `AGENT.md`:** Note the current preprocessing outputs and the fact that freshness/conflict artifacts are not yet emitted by `run_pipeline.py`.
+**Update `CLAUDE.md` and `AGENT.md`:** Note the current preprocessing outputs, including the freshness/conflict artifacts emitted by `run_pipeline.py`.
 
 ## Testing
 

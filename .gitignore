@@ -21,6 +21,8 @@ env/
 data/cleaned/
 data/metadata.json
 data/filter_report.json
+data/freshness_manifest.json
+data/conflict_review.md
 data/indexes/
 data/analytics.db
 

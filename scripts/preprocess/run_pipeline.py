@@ -4,6 +4,8 @@ Reads raw corpus files, strips boilerplate, applies filters, and writes:
 - data/cleaned/  -- cleaned markdown files (one per surviving source)
 - data/metadata.json  -- array of metadata objects
 - data/filter_report.json  -- excluded files with reasons and counts
+- data/freshness_manifest.json  -- per-document freshness risk records
+- data/conflict_review.md  -- human-readable conflict review report
 
 This script is idempotent: re-running it will overwrite previous outputs.
 
@@ -20,8 +22,9 @@ import logging
 import shutil
 import sys
 import time
-from collections import Counter
-from dataclasses import dataclass, field
+from collections import Counter, defaultdict
+from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -31,9 +34,14 @@ _PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 if str(_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT))
 
-from scripts.preprocess.extract_metadata import PageMetadata, extract_metadata
-from scripts.preprocess.filter_corpus import DiscardReason, FilterResult, filter_page
-from scripts.preprocess.strip_boilerplate import StrippedResult, strip_boilerplate
+from scripts.preprocess.extract_metadata import extract_metadata
+from scripts.preprocess.filter_corpus import FilterResult, filter_page
+from scripts.preprocess.conflicts import detect_cluster_conflicts, format_conflict_report
+from scripts.preprocess.freshness import (
+    collect_document_metadata,
+    compute_outdated_risk,
+)
+from scripts.preprocess.strip_boilerplate import strip_boilerplate
 
 logger = logging.getLogger(__name__)
 
@@ -43,9 +51,8 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_CORPUS_DIR = Path("dataset/itc2026_ai_corpus")
 DEFAULT_OUTPUT_DIR = Path("data")
-DEFAULT_CLEANED_DIR = DEFAULT_OUTPUT_DIR / "cleaned"
-METADATA_FILE = DEFAULT_OUTPUT_DIR / "metadata.json"
-FILTER_REPORT_FILE = DEFAULT_OUTPUT_DIR / "filter_report.json"
+FRESHNESS_MANIFEST_FILE = DEFAULT_OUTPUT_DIR / "freshness_manifest.json"
+CONFLICT_REVIEW_FILE = DEFAULT_OUTPUT_DIR / "conflict_review.md"
 
 
 # ---------------------------------------------------------------------------
@@ -113,6 +120,24 @@ def _load_index(corpus_dir: Path) -> dict[str, str]:
     return {}
 
 
+def _build_file_to_urls(url_map: dict[str, str]) -> dict[str, list[str]]:
+    """Reverse the URL index into a filename-to-URLs lookup."""
+    file_to_urls: dict[str, list[str]] = defaultdict(list)
+    for source_url, filename in url_map.items():
+        file_to_urls[filename].append(source_url)
+
+    for urls in file_to_urls.values():
+        urls.sort()
+    return dict(file_to_urls)
+
+
+def _format_mtime_iso(path: Path) -> str:
+    """Return a stable UTC ISO-8601 timestamp for a source file."""
+    return datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc).isoformat().replace(
+        "+00:00", "Z"
+    )
+
+
 def run_pipeline(
     corpus_dir: Path = DEFAULT_CORPUS_DIR,
     output_dir: Path = DEFAULT_OUTPUT_DIR,
@@ -144,22 +169,17 @@ def run_pipeline(
     total = len(md_files)
 
     if total == 0:
-        logger.error("No .md files found in %s", corpus_dir)
-        return FilterReport(
-            total_source_files=0,
-            kept=0,
-            excluded=0,
-            excluded_files=(),
-            reason_counts={},
-        )
-
-    logger.info("Found %d source files in %s", total, corpus_dir)
+        logger.warning("No .md files found in %s", corpus_dir)
+    else:
+        logger.info("Found %d source files in %s", total, corpus_dir)
 
     # Load URL index
     url_map = _load_index(corpus_dir)
+    file_to_urls = _build_file_to_urls(url_map)
 
     # Process each file
     metadata_list: list[dict[str, Any]] = []
+    freshness_records: list[dict[str, Any]] = []
     excluded_files: list[ExcludedFile] = []
     reason_counter: Counter[str] = Counter()
 
@@ -189,6 +209,20 @@ def run_pipeline(
         meta = extract_metadata(filename, stripped.content, url_map)
         metadata_list.append(meta.to_dict())
 
+        source_urls = file_to_urls.get(filename, [])
+        source_url = source_urls[0] if source_urls else meta.url
+        alias_count = len(source_urls)
+        freshness_records.append(
+            collect_document_metadata(
+                filename=filename,
+                source_url=source_url,
+                cleaned_body=stripped.content,
+                filter_result=result,
+                alias_count=alias_count,
+                file_mtime_iso=_format_mtime_iso(md_path),
+            )
+        )
+
         if i % 500 == 0:
             logger.info("Processed %d / %d files...", i, total)
 
@@ -215,11 +249,62 @@ def run_pipeline(
         encoding="utf-8",
     )
 
+    # Build freshness manifest and conflict review artifacts for kept pages.
+    topic_groups: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for record in freshness_records:
+        if record.get("keep"):
+            topic_groups[record["topic_key"]].append(record)
+
+    conflict_clusters = detect_cluster_conflicts(freshness_records)
+    conflict_topic_keys = {cluster["topic_key"] for cluster in conflict_clusters}
+    current_year = datetime.now(timezone.utc).year
+
+    freshness_manifest: list[dict[str, Any]] = []
+    risk_counts: Counter[str] = Counter()
+    for record in freshness_records:
+        cluster_records = topic_groups.get(record["topic_key"], [])
+        latest_years = [
+            cluster_record["latest_year"]
+            for cluster_record in cluster_records
+            if cluster_record.get("latest_year") is not None
+        ]
+        cluster_context = {
+            "current_year": current_year,
+            "max_latest_year": max(latest_years) if latest_years else None,
+            "cluster_has_conflicts": record["topic_key"] in conflict_topic_keys,
+        }
+        risk = compute_outdated_risk(record, cluster_context=cluster_context)
+        freshness_manifest.append({**record, **risk})
+        risk_counts[risk["outdated_risk_level"]] += 1
+
+    freshness_manifest_path = output_dir / FRESHNESS_MANIFEST_FILE.name
+    freshness_manifest_path.write_text(
+        json.dumps(freshness_manifest, indent=2, ensure_ascii=False),
+        encoding="utf-8",
+    )
+
+    conflict_review_path = output_dir / CONFLICT_REVIEW_FILE.name
+    conflict_review_path.write_text(
+        format_conflict_report(
+            conflict_clusters,
+            {
+                "total_kept": len(freshness_records),
+                "total_records": total,
+            },
+        ),
+        encoding="utf-8",
+    )
+
     logger.info(
-        "Pipeline complete: %d kept, %d excluded out of %d total",
+        "Pipeline complete: %d kept, %d excluded out of %d total; "
+        "freshness levels low=%d medium=%d high=%d; %d conflict clusters",
         kept,
         len(excluded_files),
         total,
+        risk_counts.get("low", 0),
+        risk_counts.get("medium", 0),
+        risk_counts.get("high", 0),
+        len(conflict_clusters),
     )
 
     return report
