@@ -1,8 +1,8 @@
 """Freshness scoring for preprocessed corpus documents.
 
-Ported from preprocessing_pipeline_test/scripts/corpus_freshness.py.
-Computes per-document outdated risk scores based on URL patterns,
-content signals, and cluster context.
+Derived from the earlier notebook pipeline and kept here as the
+production implementation. Computes per-document outdated risk scores
+based on URL patterns, content signals, and cluster context.
 """
 
 from __future__ import annotations

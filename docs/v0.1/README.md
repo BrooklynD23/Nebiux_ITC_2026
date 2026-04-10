@@ -83,7 +83,8 @@ Files touched by multiple contributors have a single owner to prevent merge conf
 | `src/config.py` | B | Import from it, never edit directly |
 | `docs/v0.1/README.md` | C | Propose edits, C merges |
 | `.gitignore` | B | Propose additions via PR comment |
-| `CLAUDE.md` | C | Propose edits, C merges |
+| `CLAUDE.md`, `AGENT.md` | C | Propose edits, C merges |
+| `AGENTS.md` | C | Update only as a compatibility shim |
 
 If you need a change in a file you don't own, add a comment on your PR tagging the owner. The owner makes the edit in their own branch or approves yours.
 

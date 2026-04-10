@@ -12,8 +12,10 @@ The issue body is empty, so the planning baseline for this document comes from:
 - [docs/v0.1/README.md](./v0.1/README.md)
 - [docs/v0.1/implementation-plan.md](./v0.1/implementation-plan.md)
 - [docs/v0.1/sprint-0-contracts.md](./v0.1/sprint-0-contracts.md)
-- [preprocessing_pipeline_test/notebooks/corpus_pipeline_executed.ipynb](../preprocessing_pipeline_test/notebooks/corpus_pipeline_executed.ipynb)
-- [preprocessing_pipeline_test/artifacts/cleaning_report.md](../preprocessing_pipeline_test/artifacts/cleaning_report.md)
+- [scripts/preprocess/freshness.py](../scripts/preprocess/freshness.py)
+- [scripts/preprocess/conflicts.py](../scripts/preprocess/conflicts.py)
+- [tests/test_freshness.py](../tests/test_freshness.py)
+- [tests/test_conflicts.py](../tests/test_conflicts.py)
 
 ## 1. Repo Audit
 
@@ -47,7 +49,10 @@ The issue body is empty, so the planning baseline for this document comes from:
   - [scripts/preprocess/strip_boilerplate.py](../scripts/preprocess/strip_boilerplate.py)
   - [scripts/preprocess/filter_corpus.py](../scripts/preprocess/filter_corpus.py)
   - [scripts/preprocess/extract_metadata.py](../scripts/preprocess/extract_metadata.py)
-  - [preprocessing_pipeline_test/artifacts/cleaning_report.md](../preprocessing_pipeline_test/artifacts/cleaning_report.md)
+  - [scripts/preprocess/freshness.py](../scripts/preprocess/freshness.py)
+  - [scripts/preprocess/conflicts.py](../scripts/preprocess/conflicts.py)
+  - [tests/test_freshness.py](../tests/test_freshness.py)
+  - [tests/test_conflicts.py](../tests/test_conflicts.py)
 - Infra and env handling:
   - [Dockerfile](../Dockerfile)
   - [docker-compose.yml](../docker-compose.yml)
@@ -60,9 +65,8 @@ The issue body is empty, so the planning baseline for this document comes from:
 - The repo described a runnable Docker path, but the old backend image depended on a missing `requirements.txt` and a missing `scripts/build_index.py`.
 - The frontend env contract was inconsistent between compose and runtime code.
 - The frontend defaulted to mock mode, which hid backend integration by default.
-- The preprocessing notebook and production pipeline had diverged:
-  - production path writes `data/cleaned/`, `data/metadata.json`, `data/filter_report.json`
-  - notebook path adds dedupe/freshness artifacts under `preprocessing_pipeline_test/output/itc2026_clean_corpus/`
+- The preprocessing helpers are now in the production tree, but the main pipeline still writes only `data/cleaned/`, `data/metadata.json`, and `data/filter_report.json`.
+- The old notebook/output paths have been deleted, so any reference to `preprocessing_pipeline_test/` is historical only.
 - The repo had no explicit judge/deployment guide and no hosted deployment compose file.
 - The current backend still uses a scaffold tool loop, so issue #18 should standardize architecture without pretending that the full hybrid retriever is already complete.
 

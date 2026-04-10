@@ -17,7 +17,18 @@
       "WebFetch(domain:openai.com)",
       "WebFetch(domain:pricepertoken.com)",
       "WebFetch(domain:discuss.ai.google.dev)",
-      "WebFetch(domain:findskill.ai)"
+      "WebFetch(domain:findskill.ai)",
+      "Bash(git push:*)",
+      "Bash(gh auth:*)",
+      "Bash(git config:*)",
+      "Bash(gh api:*)",
+      "Bash(git check-ignore:*)",
+      "Bash(git worktree:*)",
+      "Bash(pipx install:*)",
+      "Bash(pip list:*)",
+      "Bash(/home/danny/.local/bin/ruff check:*)",
+      "Bash(pip show:*)",
+      "Bash(pytest:*)"
     ]
   }
 }
