@@ -1,35 +1,46 @@
 """Verify that the raw corpus is installed correctly."""
 
+import argparse
 import json
+import os
 import sys
 from pathlib import Path
 
-CORPUS_DIR = Path("dataset/itc2026_ai_corpus")
 EXPECTED_MIN_FILES = 8000
-INDEX_FILE = CORPUS_DIR / "index.json"
 
 
 def main() -> int:
+    parser = argparse.ArgumentParser(
+        description="Verify that the raw corpus is installed correctly."
+    )
+    parser.add_argument(
+        "--corpus-dir",
+        type=Path,
+        default=Path(os.environ.get("RAW_CORPUS_DIR", "dataset/itc2026_ai_corpus")),
+        help="Path to the raw corpus directory.",
+    )
+    args = parser.parse_args()
+
+    corpus_dir = args.corpus_dir
+    index_file = corpus_dir / "index.json"
     errors: list[str] = []
 
-    if not CORPUS_DIR.is_dir():
-        print(f"FAIL: {CORPUS_DIR} does not exist.")
+    if not corpus_dir.is_dir():
+        print(f"FAIL: {corpus_dir} does not exist.")
         print("See dataset/README.md for setup instructions.")
         return 1
 
-    md_files = list(CORPUS_DIR.glob("*.md"))
+    md_files = list(corpus_dir.glob("*.md"))
     count = len(md_files)
 
     if count < EXPECTED_MIN_FILES:
-        errors.append(
-            f"Expected >= {EXPECTED_MIN_FILES} .md files, found {count}"
-        )
+        errors.append(f"Expected >= {EXPECTED_MIN_FILES} .md files, found {count}")
 
-    if not INDEX_FILE.is_file():
-        errors.append(f"Missing {INDEX_FILE}")
+    if not index_file.is_file():
+        errors.append(f"Missing {index_file}")
     else:
         try:
-            data = json.loads(INDEX_FILE.read_text(encoding="utf-8"))
+            data = json.loads(index_file.read_text(encoding="utf-8"))
             if not isinstance(data, (list, dict)):
                 errors.append("index.json is not a list or dict")
         except (json.JSONDecodeError, UnicodeDecodeError) as e:

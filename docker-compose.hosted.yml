@@ -6,11 +6,12 @@ services:
     env_file:
       - .env
     environment:
-      UVICORN_RELOAD: "true"
+      UVICORN_RELOAD: "false"
     ports:
       - "8000:8000"
     volumes:
-      - ./:/app
+      - ./dataset/itc2026_ai_corpus:/app/dataset/itc2026_ai_corpus:ro
+      - ./data:/app/data
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=5).read()"]
       interval: 10s
@@ -22,19 +23,12 @@ services:
     build:
       context: .
       dockerfile: frontend/Dockerfile
-      target: dev
-    ports:
-      - "5173:5173"
-    environment:
-      VITE_USE_MOCK: "false"
-      VITE_DEV_PROXY_TARGET: "http://backend:8000"
-    volumes:
-      - ./frontend:/app
-      - frontend_node_modules:/app/node_modules
+      target: prod
+      args:
+        VITE_USE_MOCK: "false"
+        VITE_API_BASE_URL: ${PUBLIC_API_BASE_URL}
     depends_on:
       backend:
         condition: service_healthy
-
-volumes:
-  frontend_node_modules:
-    driver: local
+    ports:
+      - "80:80"

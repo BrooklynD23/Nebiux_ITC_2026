@@ -4,10 +4,10 @@ import { sendMockMessage } from './mock';
 /**
  * When true, the client returns mock data instead of calling the backend.
  * Controlled via the VITE_USE_MOCK environment variable.
- * Defaults to true for Sprint 1 development.
+ * Defaults to false so local Docker/manual runs hit the real backend.
  */
 const USE_MOCK: boolean =
-  import.meta.env.VITE_USE_MOCK !== 'false';
+  import.meta.env.VITE_USE_MOCK === 'true';
 
 /**
  * Base URL for the backend API.

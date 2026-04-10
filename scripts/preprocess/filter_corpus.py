@@ -26,12 +26,15 @@ class DiscardReason(str, Enum):
     BOILERPLATE_ONLY = "boilerplate-only"
 
 
-@dataclass(frozen=True)
+@dataclass
 class FilterResult:
     """Result of filtering a single page."""
 
     keep: bool
     reason: Optional[DiscardReason] = None
+    category: str = "kept"
+    is_duplicate: bool = False
+    duplicate_group_size: int = 1
 
 
 # Minimum word count after cleaning to keep a page
@@ -177,22 +180,22 @@ def filter_page(
     """
     # Check on raw content first (before cleaning)
     if _is_redirect(raw_content):
-        return FilterResult(keep=False, reason=DiscardReason.REDIRECT)
+        return FilterResult(keep=False, reason=DiscardReason.REDIRECT, category="redirect")
 
     if _is_login_gated(raw_content, cleaned_content):
-        return FilterResult(keep=False, reason=DiscardReason.LOGIN_GATED)
+        return FilterResult(keep=False, reason=DiscardReason.LOGIN_GATED, category="login_gated")
 
     # Check cleaned content
     stripped = cleaned_content.strip()
 
     if not stripped:
-        return FilterResult(keep=False, reason=DiscardReason.BOILERPLATE_ONLY)
+        return FilterResult(keep=False, reason=DiscardReason.BOILERPLATE_ONLY, category="boilerplate_only")
 
     if _is_low_value_hub(stripped):
-        return FilterResult(keep=False, reason=DiscardReason.LOW_VALUE_HUB)
+        return FilterResult(keep=False, reason=DiscardReason.LOW_VALUE_HUB, category="nav_heavy")
 
     wc = _word_count(stripped)
     if wc < MIN_WORD_COUNT:
-        return FilterResult(keep=False, reason=DiscardReason.TOO_SHORT)
+        return FilterResult(keep=False, reason=DiscardReason.TOO_SHORT, category="stub")
 
-    return FilterResult(keep=True)
+    return FilterResult(keep=True, category="kept")

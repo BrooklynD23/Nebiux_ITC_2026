@@ -83,6 +83,60 @@ pytest
 python scripts/eval/run_eval.py
 ```
 
+## Mascot & Media Assets
+
+**Mascot**: Billy Bronco — Cal Poly Pomona's official mascot (anthropomorphic bronco)
+**Style**: Modern flat vector 2D, friendly and approachable, CPP brand colors
+
+### AI Generation Plans
+
+| Asset Type | AI Tool | Plan Location | Purpose |
+|------------|---------|---------------|---------|
+| Static images & sprite sheets | Google Nano (Banana Pro) | `C:\Users\DangT\.windsurf\plans\nano-billy-bronco-prompt-f8da72.md` | Chat avatars, extension icons, animation frames |
+| Landing page videos | Google Flow Lab | `C:\Users\DangT\.windsurf\plans\flowlab-video-prompts-f8da72.md` | Framer Motion integration, hero animations |
+| Analytics dashboard | Google Stitch | `C:\Users\DangT\.windsurf\plans\stitch-ai-prompt-analytics-dashboard-f8da72.md` | Admin dashboard UI mockups |
+
+### Character Design Specs
+- **Body Structure**: **Quadruped horse stance** — stands on all four legs like a real horse (NOT bipedal/anthropomorphic)
+- **Legs/Hooves**: Four gold hooves (#FFB81C) — two front legs can lift/gesture, two back legs support body
+- **Proportions**: Natural horse body proportions — horizontal body, four-legged stance
+- **Colors**: CPP Green `#00573D` (body), CPP Gold `#FFB81C` (mane/hooves), Cream `#FAF9F6` (muzzle)
+- **Style**: Modern flat vector, clean 2px outlines, minimal shading, 2020s mascot aesthetic
+- **Personality**: Helpful, intelligent, approachable, friendly horse character
+- **Gestures**: Front hooves lift to wave, point, gesture — like a horse raising its front legs
+- **Anatomy**: Natural quadruped horse (NOT bipedal anthropomorphic, NOT human-like proportions)
+
+### Animation Frame Sets
+1. **Idle/Breathing** — 8 frames for default chat presence
+2. **Speaking/Talking** — 6 frames for response states
+3. **Thinking/Processing** — 5 frames for search states
+4. **Happy/Success** — 5 frames for positive feedback
+5. **Apologetic/Refusal** — 5 frames for graceful "I don't know"
+6. **Waving/Hello-Goodbye** — 6 frames for greeting/farewell
+
+### Landing Page Videos (Flow Lab)
+1. Hero Welcome Loop (10s)
+2. Question-to-Answer Demo (8s)
+3. Campus Topics Showcase (12s)
+4. Multi-Turn Conversation (10s)
+5. Source Attribution Trust Builder (8s)
+6. Student Success Celebration (6s)
+7. Mobile App Demo (8s)
+8. Loading/Processing State (4s loop)
+9. Graceful Error State (5s)
+10. Call-to-Action Finale (6s)
+
+### Asset Output Locations
+```
+assets/
+  mascot/
+    frames/          # Individual PNG frames from Nano
+    icons/           # Extension icons, avatars
+    sprites/         # CSS sprite sheets
+    videos/          # Flow Lab MP4/WebM outputs
+    source/          # Raw AI outputs
+```
+
 ## Implementation Sprints
 
 1. **Sprint 0 — Contracts** — freeze preprocessing, API, citation, and eval interfaces

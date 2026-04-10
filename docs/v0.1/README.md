@@ -41,6 +41,11 @@ Cut for V0.1:
 - [Sprint 2 - Core E2E](./sprint-2-core-e2e.md)
 - [Sprint 3 - Hardening and Showcase](./sprint-3-hardening-showcase.md)
 
+## Cross-Cutting Docs
+
+- [Issue #18 - Setup Architecture](../issue-18-setup-architecture.md)
+- [Judging and Deployment Guide](../judging-and-deployment.md)
+
 ## Branch Naming Convention
 
 Each contributor works on a branch prefixed with their lane letter:

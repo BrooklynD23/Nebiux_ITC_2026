@@ -1,3 +1,7 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "nebiux-itc-2026"
 version = "0.1.0"
@@ -44,3 +48,9 @@ profile = "black"
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
+
+[tool.setuptools.package-data]
+src = ["py.typed"]
+
+[tool.setuptools.packages.find]
+include = ["src*"]
