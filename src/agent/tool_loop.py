@@ -7,42 +7,97 @@ In Sprint 2 this will contain the real tool-calling loop that:
 4. Returns the final grounded answer with citations
 
 For Sprint 0-1, this returns a realistic mock response so the API
-contract can be validated end-to-end.
+contract can be validated end-to-end.  The conversation memory layer
+is already wired, so the Sprint 2 author only needs to replace
+``_generate_stub_response``.
 """
 
 from __future__ import annotations
 
+import logging
 import uuid
+from typing import TYPE_CHECKING
+
+from fastapi import HTTPException
 
 from src.models import ChatResponse, ChatStatus, Citation
+
+if TYPE_CHECKING:
+    from src.conversation import ConversationStore, Message
+
+logger = logging.getLogger(__name__)
 
 
 async def run_tool_loop(
     message: str,
     conversation_id: str | None = None,
+    *,
+    store: "ConversationStore | None" = None,
+    max_turns: int = 10,
 ) -> ChatResponse:
     """Process a user message through the (stubbed) agent tool loop.
 
-    Parameters
-    ----------
-    message:
-        The user's natural-language question.
-    conversation_id:
-        Existing conversation UUID, or None to start fresh.
-
-    Returns
-    -------
-    ChatResponse
-        A mock response conforming to the POST /chat contract.
+    When ``store`` is provided, the prior history is loaded, the new
+    user turn is persisted before generation, and the assistant turn is
+    persisted afterwards.  When ``store`` is ``None`` the function
+    still returns a valid response (used by legacy contract tests).
     """
-    cid = conversation_id or str(uuid.uuid4())
+    if store is not None:
+        cid = store.get_or_create(conversation_id)
+    else:
+        cid = conversation_id or str(uuid.uuid4())
 
-    # Simple keyword-based stub routing for realistic mock behavior
+    history: "list[Message]" = []
+    if store is not None:
+        history = store.get_history(cid, max_turns=max_turns)
+        try:
+            store.append_user_message(cid, message)
+        except Exception:
+            logger.exception(
+                "Failed to persist user message for conversation %s", cid
+            )
+            raise HTTPException(
+                status_code=500,
+                detail="Conversation store unavailable",
+            ) from None
+
+    # TODO(sprint-2): replace with real LLM + search_corpus tool loop
+    response = _generate_stub_response(message, cid, history)
+
+    if store is not None:
+        try:
+            store.append_assistant_message(
+                cid,
+                response.answer_markdown,
+                [c.model_dump() for c in response.citations],
+                response.status.value,
+            )
+        except Exception:
+            logger.exception(
+                "Failed to persist assistant message for conversation %s",
+                cid,
+            )
+
+    return response
+
+
+def _generate_stub_response(
+    message: str,
+    conversation_id: str,
+    history: "list[Message]",
+) -> ChatResponse:
+    """Keyword-routed stub response.
+
+    ``history`` is threaded through so the Sprint 2 LLM author only
+    needs to replace this function body.
+    """
+    del history  # reserved for Sprint 2 multi-turn context
+
     lower = message.lower()
 
     if any(kw in lower for kw in ("parking", "permit", "transportation")):
         return ChatResponse(
-            conversation_id=cid,
+            conversation_id=conversation_id,
             status=ChatStatus.ANSWERED,
             answer_markdown=(
                 "Parking permits are required on campus Monday through "
@@ -65,7 +120,7 @@ async def run_tool_loop(
 
     if any(kw in lower for kw in ("admission", "apply", "freshmen", "deadline")):
         return ChatResponse(
-            conversation_id=cid,
+            conversation_id=conversation_id,
             status=ChatStatus.ANSWERED,
             answer_markdown=(
                 "Cal Poly Pomona accepts **fall admission** applications from "
@@ -88,9 +143,8 @@ async def run_tool_loop(
             ],
         )
 
-    # Default: a generic answered response
     return ChatResponse(
-        conversation_id=cid,
+        conversation_id=conversation_id,
         status=ChatStatus.ANSWERED,
         answer_markdown=(
             "Cal Poly Pomona (CPP) is a public polytechnic university in "

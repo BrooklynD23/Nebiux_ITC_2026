@@ -7,11 +7,18 @@ Run with::
 
 from __future__ import annotations
 
+import logging
+from contextlib import asynccontextmanager
+from typing import AsyncIterator
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from src.api.routes import router
+from src.conversation import ConversationStore
 from src.settings import get_settings
+
+logger = logging.getLogger(__name__)
 
 
 def _dir_has_entries(path: str) -> bool:
@@ -22,6 +29,22 @@ def _dir_has_entries(path: str) -> bool:
 
 settings = get_settings()
 
+
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    """Open the conversation store on startup and close it on shutdown."""
+    cfg = get_settings()
+    store = ConversationStore(cfg.conversation_db_path)
+    app.state.conversation_store = store
+    try:
+        yield
+    finally:
+        try:
+            store.close()
+        except Exception:  # pragma: no cover - defensive
+            logger.exception("Failed to close conversation store cleanly")
+
+
 app = FastAPI(
     title="CPP Campus Knowledge Agent",
     description=(
@@ -29,6 +52,7 @@ app = FastAPI(
         "grounded, cited answers from the official corpus."
     ),
     version="0.1.0",
+    lifespan=lifespan,
 )
 
 app.add_middleware(

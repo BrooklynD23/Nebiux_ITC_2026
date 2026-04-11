@@ -46,6 +46,15 @@ class Settings(BaseSettings):
         alias="AUTO_BUILD_ARTIFACTS",
     )
 
+    conversation_db_path: Path = Field(
+        default=Path("data/conversations.db"),
+        alias="CONVERSATION_DB_PATH",
+    )
+    conversation_history_max_turns: int = Field(
+        default=10,
+        alias="CONVERSATION_HISTORY_MAX_TURNS",
+    )
+
     @field_validator("cors_origins", mode="before")
     @classmethod
     def _parse_cors_origins(cls, value: str | list[str] | None) -> list[str]:
