@@ -4,24 +4,33 @@ from __future__ import annotations
 
 import logging
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 
 from src.agent.tool_loop import run_tool_loop
-from src.models import ChatRequest, ChatResponse, ChatStatus
+from src.conversation import ConversationStore
+from src.models import ChatRequest, ChatResponse
+from src.settings import get_settings
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
 
-@router.post("/chat", response_model=ChatResponse)
-async def chat(request: ChatRequest) -> ChatResponse:
-    """Handle a user chat message and return a grounded answer.
+def get_conversation_store(request: Request) -> ConversationStore | None:
+    """Return the app-scoped conversation store, if configured.
 
-    Delegates to the agent tool loop which (in Sprint 2+) will call the
-    LLM with the ``search_corpus`` tool.  For Sprint 0-1 the tool loop
-    returns realistic mock responses.
+    Returns ``None`` when the store has not been attached to ``app.state``
+    (for example in legacy tests that bypass the FastAPI lifespan).
     """
+    return getattr(request.app.state, "conversation_store", None)
+
+
+@router.post("/chat", response_model=ChatResponse)
+async def chat(
+    request: ChatRequest,
+    store: ConversationStore | None = Depends(get_conversation_store),
+) -> ChatResponse:
+    """Handle a user chat message and return a grounded answer."""
     try:
         response = await run_tool_loop(
             message=request.message,
@@ -30,8 +39,12 @@ async def chat(request: ChatRequest) -> ChatResponse:
                 if request.conversation_id is not None
                 else None
             ),
+            store=store,
+            max_turns=get_settings().conversation_history_max_turns,
         )
         return response
+    except HTTPException:
+        raise
     except Exception:
         logger.exception("Unexpected error in chat handler")
         raise HTTPException(

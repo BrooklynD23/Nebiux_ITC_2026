@@ -160,8 +160,10 @@ Use the filesystem for the four different storage concerns:
 1. **Source corpus**: `dataset/itc2026_ai_corpus/`
 2. **Page and chunk metadata**: `data/metadata.json`, `data/chunks.jsonl`
 3. **Persisted retrieval indexes**: `data/indexes/whoosh/` and reserved `data/indexes/chroma/`
-4. **Runtime state**: in-memory conversation state for now; optional SQLite can be added later if analytics or persisted chat history becomes necessary
+4. **Runtime state**: SQLite-backed conversation persistence is enabled through `src/conversation/store.py` with default DB path `data/conversations.db` (configurable via `CONVERSATION_DB_PATH`)
 
 ## Repo Status
 
 This issue establishes the architecture and environment contracts. It does **not** finish the full hybrid retriever or the real provider-backed tool loop. Those remain later sprint work.
+
+The current `/chat` loop is still scaffold-level, but it now includes retrieval-oriented query normalization (abbreviation expansion and punctuation/filler cleanup) and an ambiguous-query clarification response path before stub retrieval routing.
