@@ -64,8 +64,10 @@ Steps applied in order inside `normalize(raw: str) -> NormalizedQuery`:
 2. **Lowercase** — `.lower()`
 3. **Strip filler phrases** — remove leading phrases (`"can you tell me"`, `"i want to know"`, `"i would like to know"`, `"could you tell me"`, `"please tell me"`) via regex
 4. **Normalize punctuation** — collapse repeated `?!.,` to single; strip `?`, `!`, `"`, `'` at word boundaries
-5. **Expand abbreviations** — token-by-token lookup against `ABBREVIATION_MAP`; replace matched tokens
-6. **Ambiguity check** — count whitespace-split tokens; `is_ambiguous = len(tokens) < 3`
+5. **Ambiguity check** — split on whitespace after step 4; `is_ambiguous = len(tokens) < 3`. Tokenization is `text.split()` (standard whitespace split — no external tokenizer dependency).
+6. **Expand abbreviations** — token-by-token lookup against `ABBREVIATION_MAP`; replace matched tokens to produce `normalized_text`
+
+> **Why ambiguity check precedes expansion (step 5 before step 6):** A query like `"cpp"` is 1 token and semantically under-specified even though it expands to "Cal Poly Pomona". Checking before expansion preserves the student's intent signal — if they typed one word, we ask for more context regardless of how the abbreviation expands.
 
 ---
 
@@ -94,7 +96,7 @@ ABBREVIATION_MAP: dict[str, str] = {
 
 ## tool_loop.py Integration
 
-At the top of `run_tool_loop()`, before any LLM or retrieval call:
+At the top of `run_tool_loop()`, before any LLM or retrieval call. The module-level logger is obtained via `logger = logging.getLogger(__name__)` (consistent with the existing pattern in `routes.py`):
 
 ```python
 normalized = normalize(message)
@@ -128,11 +130,11 @@ Everywhere `message` was passed to retrieval, replace with `normalized.normalize
 
 ## Acceptance Criteria (from issue #23)
 
-| Input | `normalized_text` | `is_ambiguous` |
-|---|---|---|
-| `"  FAFSA DUE WHEN?? "` | `"free application for federal student aid due when"` | `False` |
-| `"cpp"` | `"Cal Poly Pomona"` | `True` → clarification returned |
-| `"hi"` | `"hi"` | `True` → clarification returned |
+| Input | `normalized_text` | `is_ambiguous` | Note |
+|---|---|---|---|
+| `"  FAFSA DUE WHEN?? "` | `"free application for federal student aid due when"` | `False` | 5 tokens after normalization |
+| `"cpp"` | `"Cal Poly Pomona"` | `True` → clarification returned | 1 pre-expansion token; ambiguity checked before expansion |
+| `"hi"` | `"hi"` | `True` → clarification returned | 1 token, no expansion |
 
 ---
 
@@ -140,17 +142,17 @@ Everywhere `message` was passed to retrieval, replace with `normalized.normalize
 
 ### `tests/test_query_normalizer.py` (new, unit)
 
-| Test | Input | Assertion |
-|---|---|---|
-| Lowercase + strip whitespace | `"  FAFSA DUE WHEN?? "` | normalized = `"free application for federal student aid due when"` |
-| Abbreviation expansion | `"cpp admissions"` | contains `"Cal Poly Pomona"` |
-| Filler phrase strip | `"can you tell me about parking"` | filler removed |
-| Punctuation normalization | `"what is fafsa???"` | no repeated `?` |
-| Ambiguous — 1 token | `"cpp"` | `is_ambiguous=True` |
-| Ambiguous — 2 tokens | `"fafsa deadline"` | `is_ambiguous=True` |
-| Not ambiguous — 3 tokens | `"fafsa deadline cpp"` | `is_ambiguous=False` |
-| Filler-only query | `"can you tell me"` | `is_ambiguous=True` |
-| Original preserved | any | `normalized.original == raw_input` |
+| # | Test | Input | Assertion |
+|---|---|---|---|
+| 1 | Lowercase + strip whitespace | `"  FAFSA DUE WHEN?? "` | `normalized_text == "free application for federal student aid due when"` |
+| 2 | Abbreviation expansion — multi-token query | `"cpp admissions"` | `normalized_text` starts with `"Cal Poly Pomona admissions"` |
+| 3 | Filler phrase strip — leading phrase | `"can you tell me about parking"` | `normalized_text == "about parking"` (filler removed, content preserved) |
+| 4 | Punctuation normalization — repeated marks | `"what is fafsa???"` | `"???"` not in `normalized_text` |
+| 5 | Ambiguous — 1 pre-expansion token | `"cpp"` | `is_ambiguous=True` (checked before expansion) |
+| 6 | Ambiguous — 2 pre-expansion tokens | `"fafsa deadline"` | `is_ambiguous=True` |
+| 7 | Not ambiguous — 3 pre-expansion tokens | `"fafsa deadline cpp"` | `is_ambiguous=False` |
+| 8 | Filler-only → empty after strip | `"can you tell me"` | `normalized_text == ""` and `is_ambiguous=True` (0 tokens → `< 3`) |
+| 9 | Original field preserved unchanged | `"  FAFSA DUE WHEN?? "` | `normalized.original == "  FAFSA DUE WHEN?? "` |
 
 ### `tests/test_api.py` (additions to existing class)
 
