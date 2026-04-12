@@ -12,9 +12,13 @@ contract can be validated end-to-end.
 
 from __future__ import annotations
 
+import logging
 import uuid
 
+from src.agent.query_normalizer import normalize
 from src.models import ChatResponse, ChatStatus, Citation
+
+logger = logging.getLogger(__name__)
 
 
 async def run_tool_loop(
@@ -36,9 +40,29 @@ async def run_tool_loop(
         A mock response conforming to the POST /chat contract.
     """
     cid = conversation_id or str(uuid.uuid4())
+    normalized = normalize(message)
+
+    logger.debug(
+        "query raw=%r normalized=%r ambiguous=%s",
+        normalized.original,
+        normalized.normalized_text,
+        normalized.is_ambiguous,
+    )
+
+    if normalized.is_ambiguous:
+        return ChatResponse(
+            conversation_id=cid,
+            status=ChatStatus.NOT_FOUND,
+            answer_markdown=(
+                "Your question is a bit short — could you give me more detail? "
+                "For example: *\"What are the FAFSA deadlines at CPP?\"* or "
+                "*\"Where is the financial aid office?\"*"
+            ),
+            citations=[],
+        )
 
     # Simple keyword-based stub routing for realistic mock behavior
-    lower = message.lower()
+    lower = normalized.normalized_text.lower()
 
     if any(kw in lower for kw in ("parking", "permit", "transportation")):
         return ChatResponse(
@@ -83,6 +107,39 @@ async def run_tool_loop(
                     snippet=(
                         "Cal Poly Pomona accepts applications for fall admission "
                         "from October 1 through December 15."
+                    ),
+                ),
+            ],
+        )
+
+    if any(
+        kw in lower
+        for kw in (
+            "financial aid",
+            "free application for federal student aid",
+            "scholarship",
+            "aid office",
+        )
+    ):
+        return ChatResponse(
+            conversation_id=cid,
+            status=ChatStatus.ANSWERED,
+            answer_markdown=(
+                "CPP offers grants, scholarships, loans, and work-study "
+                "programs. Students should file the FAFSA or CA Dream Act "
+                "Application each year to be considered for financial aid.\n\n"
+                "For current deadlines and office details, check the "
+                "[Financial Aid and Scholarships]"
+                "(https://www.cpp.edu/financial-aid/index.shtml) page."
+            ),
+            citations=[
+                Citation(
+                    title="Financial Aid and Scholarships",
+                    url="https://www.cpp.edu/financial-aid/index.shtml",
+                    snippet=(
+                        "CPP offers grants, scholarships, loans, and work-study "
+                        "programs. Students must file the FAFSA or CA Dream Act "
+                        "Application annually to be considered for financial aid."
                     ),
                 ),
             ],
