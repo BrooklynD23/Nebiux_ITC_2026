@@ -34,15 +34,24 @@ settings = get_settings()
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Open the conversation store on startup and close it on shutdown."""
     cfg = get_settings()
-    store = ConversationStore(cfg.conversation_db_path)
+    store: ConversationStore | None = None
+    try:
+        store = ConversationStore(cfg.effective_conversation_db_path)
+    except Exception:
+        logger.exception(
+            "Failed to initialize conversation store at %s; "
+            "continuing without persistence",
+            cfg.effective_conversation_db_path,
+        )
     app.state.conversation_store = store
     try:
         yield
     finally:
-        try:
-            store.close()
-        except Exception:  # pragma: no cover - defensive
-            logger.exception("Failed to close conversation store cleanly")
+        if store is not None:
+            try:
+                store.close()
+            except Exception:  # pragma: no cover - defensive
+                logger.exception("Failed to close conversation store cleanly")
 
 
 app = FastAPI(

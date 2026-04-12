@@ -35,7 +35,7 @@ if str(_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT))
 
 from scripts.preprocess.extract_metadata import extract_metadata
-from scripts.preprocess.filter_corpus import FilterResult, filter_page
+from scripts.preprocess.filter_corpus import filter_page
 from scripts.preprocess.conflicts import detect_cluster_conflicts, format_conflict_report
 from scripts.preprocess.freshness import (
     collect_document_metadata,

@@ -6,8 +6,6 @@ import threading
 import uuid
 from datetime import datetime, timezone
 
-import pytest
-
 from src.conversation import ConversationStore, Message
 
 

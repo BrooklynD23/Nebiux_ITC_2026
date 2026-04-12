@@ -46,8 +46,8 @@ class Settings(BaseSettings):
         alias="AUTO_BUILD_ARTIFACTS",
     )
 
-    conversation_db_path: Path = Field(
-        default=Path("data/conversations.db"),
+    conversation_db_path: Path | None = Field(
+        default=None,
         alias="CONVERSATION_DB_PATH",
     )
     conversation_history_max_turns: int = Field(
@@ -63,6 +63,10 @@ class Settings(BaseSettings):
         if isinstance(value, str):
             return [item.strip() for item in value.split(",") if item.strip()]
         return value
+
+    @property
+    def effective_conversation_db_path(self) -> Path:
+        return self.conversation_db_path or (self.data_dir / "conversations.db")
 
     @property
     def cleaned_dir(self) -> Path:

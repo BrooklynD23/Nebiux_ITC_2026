@@ -9,7 +9,7 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
-from src.conversation.models import Message
+from src.conversation.models import Message, MessageRole
 from src.conversation.schema import init_schema
 
 
@@ -44,21 +44,12 @@ class ConversationStore:
         cid = conversation_id or str(uuid.uuid4())
         now = _utcnow_iso()
         with self._lock, self._conn:
-            row = self._conn.execute(
-                "SELECT id FROM conversations WHERE id = ?",
-                (cid,),
-            ).fetchone()
-            if row is None:
-                self._conn.execute(
-                    "INSERT INTO conversations (id, created_at, updated_at)"
-                    " VALUES (?, ?, ?)",
-                    (cid, now, now),
-                )
-            else:
-                self._conn.execute(
-                    "UPDATE conversations SET updated_at = ? WHERE id = ?",
-                    (now, cid),
-                )
+            self._conn.execute(
+                "INSERT INTO conversations (id, created_at, updated_at)"
+                " VALUES (?, ?, ?)"
+                " ON CONFLICT(id) DO UPDATE SET updated_at = excluded.updated_at",
+                (cid, now, now),
+            )
         return cid
 
     def append_user_message(
@@ -129,7 +120,7 @@ class ConversationStore:
         self,
         *,
         conversation_id: str,
-        role: str,
+        role: MessageRole,
         content: str,
         citations: list[dict] | None,
         status: str | None,
@@ -150,7 +141,7 @@ class ConversationStore:
                 (now, conversation_id),
             )
         return Message(
-            role=role,  # type: ignore[arg-type]
+            role=role,
             content=content,
             created_at=_parse_ts(now),
             citations=citations,
