@@ -25,6 +25,9 @@ data/freshness_manifest.json
 data/conflict_review.md
 data/indexes/
 data/analytics.db
+data/conversations.db
+data/conversations.db-shm
+data/conversations.db-wal
 
 # Node/Frontend
 node_modules/
