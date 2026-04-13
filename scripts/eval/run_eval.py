@@ -366,7 +366,7 @@ def _normalize_string_list(value: Any) -> list[str]:
         return []
     if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
         raise ValueError(f"Expected a list of strings, got: {value!r}")
-    return [item for item in value if item.strip()]
+    return [item.strip() for item in value if item.strip()]
 
 
 if __name__ == "__main__":
