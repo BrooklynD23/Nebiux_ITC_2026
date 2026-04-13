@@ -306,6 +306,9 @@ def _evaluate_response(
             failed_checks.append("missing_answer")
         if not citations:
             failed_checks.append("missing_citations")
+    else:
+        if citations:
+            failed_checks.append("unexpected_citations")
 
     for expected_text in case.expected_answer_contains:
         if expected_text.lower() not in answer_markdown.lower():
