@@ -45,6 +45,10 @@ On first boot the backend will generate:
 - `data/filter_report.json`
 - `data/chunks.jsonl`
 - `data/indexes/whoosh/`
+- `data/indexes/chroma/`
+- `data/conversations.db`
+
+If the semantic retriever cannot initialize, the app falls back to BM25-only and still serves `/chat`.
 
 ## Hosted Deployment
 
@@ -87,6 +91,8 @@ Judge-facing frontend:
 Backend health:
 
 - `http://<server-ip-or-domain>:8000/health`
+
+The health response includes artifact readiness and the active retriever mode.
 
 ## Why Vercel Is Not The Primary Recommendation
 

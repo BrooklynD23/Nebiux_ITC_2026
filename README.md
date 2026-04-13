@@ -115,6 +115,8 @@ Use [`.env.example`](.env.example) as the source of truth.
 - `CORS_ORIGINS=http://localhost:5173,http://127.0.0.1:5173`
 - `RAW_CORPUS_DIR=dataset/itc2026_ai_corpus`
 - `DATA_DIR=data`
+- `CONVERSATION_DB_PATH=data/conversations.db`
+- `GROUNDING_MIN_TOP_SCORE=0.3`
 
 ### Frontend
 
@@ -122,7 +124,7 @@ Use [`frontend/.env.example`](frontend/.env.example).
 
 - `VITE_USE_MOCK=false`
 - `VITE_API_BASE_URL=` for hosted/static builds
-- `VITE_DEV_PROXY_TARGET=http://localhost:8000` for local Vite proxying
+- `VITE_DEV_PROXY_TARGET=http://127.0.0.1:8000` for local Vite proxying
 
 ## LLM Provider Note
 
@@ -131,9 +133,9 @@ The target provider for the competition build is **Gemini 2.5 Flash**, with **Op
 Current repo status matters here:
 
 - the provider configuration contract exists in [src/config.py](src/config.py)
-- the current `/chat` implementation is still scaffold-level in [src/agent/tool_loop.py](src/agent/tool_loop.py)
+- the current `/chat` implementation uses provider tool calling, hybrid retrieval, conversation persistence, and a weak-retrieval refusal gate in [src/agent/tool_loop.py](src/agent/tool_loop.py)
 
-That means the repo can still boot for architecture validation without a key today. When the real provider-backed tool loop is enabled, set your own provider key in `.env`.
+If you want live answers, set your own provider key in `.env`. For local UI-only work, the frontend can still run against mock mode.
 
 ## Hosted Deployment
 
@@ -164,6 +166,10 @@ Use the filesystem for the four different storage concerns:
 
 ## Repo Status
 
-This issue establishes the architecture and environment contracts. It does **not** finish the full hybrid retriever or the real provider-backed tool loop. Those remain later sprint work.
+The repo now includes:
 
-The current `/chat` loop is still scaffold-level, but it now includes retrieval-oriented query normalization (abbreviation expansion and punctuation/filler cleanup) and an ambiguous-query clarification response path before stub retrieval routing.
+- offline preprocessing and index build
+- Whoosh + Chroma retrieval artifacts
+- provider-backed `search_corpus` tool calling
+- SQLite-backed conversation persistence
+- retrieval normalization, ambiguity handling, and weak-retrieval refusal gating

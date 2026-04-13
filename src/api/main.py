@@ -16,6 +16,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from src.api.routes import router
 from src.conversation import ConversationStore
+from src.retrieval.interface import RetrieverBase
 from src.settings import get_settings
 
 logger = logging.getLogger(__name__)
@@ -30,11 +31,29 @@ def _dir_has_entries(path: str) -> bool:
 settings = get_settings()
 
 
+def _build_retriever() -> tuple[RetrieverBase | None, str]:
+    try:
+        from src.retrieval.hybrid_retriever import HybridRetriever
+
+        return HybridRetriever(), "hybrid"
+    except Exception:
+        logger.exception("Failed to initialize HybridRetriever")
+
+    try:
+        from src.retrieval.whoosh_retriever import WhooshRetriever
+
+        return WhooshRetriever(), "bm25"
+    except Exception:
+        logger.exception("Failed to initialize WhooshRetriever")
+        return None, "unavailable"
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Open the conversation store on startup and close it on shutdown."""
     cfg = get_settings()
     store: ConversationStore | None = None
+    retriever, retriever_mode = _build_retriever()
     try:
         store = ConversationStore(cfg.effective_conversation_db_path)
     except Exception:
@@ -44,6 +63,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             cfg.effective_conversation_db_path,
         )
     app.state.conversation_store = store
+    app.state.retriever = retriever
+    app.state.retriever_mode = retriever_mode
+    app.state.llm_runner = None
     try:
         yield
     finally:
@@ -81,11 +103,14 @@ app.include_router(router)
 @app.get("/health")
 async def health() -> dict[str, object]:
     """Liveness probe with basic artifact readiness details."""
+    retriever_mode = getattr(app.state, "retriever_mode", "unknown")
     return {
         "status": "ok",
         "artifacts": {
             "cleaned_ready": _dir_has_entries(str(settings.cleaned_dir)),
             "chunk_manifest_ready": settings.chunk_manifest_path.is_file(),
             "whoosh_ready": _dir_has_entries(str(settings.whoosh_dir)),
+            "chroma_ready": _dir_has_entries(str(settings.index_dir / "chroma")),
         },
+        "retriever_mode": retriever_mode,
     }

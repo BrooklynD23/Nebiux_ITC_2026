@@ -25,10 +25,22 @@ def get_conversation_store(request: Request) -> ConversationStore | None:
     return getattr(request.app.state, "conversation_store", None)
 
 
+def get_retriever(request: Request) -> object | None:
+    """Return the app-scoped retriever, if configured."""
+    return getattr(request.app.state, "retriever", None)
+
+
+def get_llm_runner(request: Request) -> object | None:
+    """Return an injected tool-loop runner for tests, if configured."""
+    return getattr(request.app.state, "llm_runner", None)
+
+
 @router.post("/chat", response_model=ChatResponse)
 async def chat(
     request: ChatRequest,
     store: ConversationStore | None = Depends(get_conversation_store),
+    retriever: object | None = Depends(get_retriever),
+    llm_runner: object | None = Depends(get_llm_runner),
 ) -> ChatResponse:
     """Handle a user chat message and return a grounded answer."""
     try:
@@ -41,6 +53,8 @@ async def chat(
             ),
             store=store,
             max_turns=get_settings().conversation_history_max_turns,
+            retriever=retriever,
+            llm_runner=llm_runner,
         )
         return response
     except HTTPException:

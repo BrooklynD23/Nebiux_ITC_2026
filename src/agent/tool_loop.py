@@ -1,19 +1,30 @@
-"""LLM agent tool loop with hybrid RAG retrieval."""
+"""LLM agent tool loop with hybrid retrieval and grounding gates."""
 
 from __future__ import annotations
 
 import json
 import logging
+import re
 import uuid
+from collections.abc import Awaitable, Callable
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 from fastapi import HTTPException
 
-from src.agent.prompts import SYSTEM_PROMPT
+from src.agent.grounding import (
+    GroundingVerdict,
+    RefusalContext,
+    assess_confidence,
+    build_refusal_response,
+)
 from src.agent.query_normalizer import normalize
+from src.agent.system_prompt import SYSTEM_PROMPT
+from src.citations import normalize_url
 from src.config import LLMProvider, get_llm_client, get_provider
 from src.models import ChatResponse, ChatStatus, Citation, SearchResult
-from src.retrieval.hybrid_retriever import HybridRetriever
+from src.retrieval.interface import RetrieverBase
+from src.settings import get_settings
 
 if TYPE_CHECKING:
     from src.conversation import ConversationStore, Message
@@ -42,15 +53,31 @@ _SEARCH_TOOL = {
         },
     },
 }
+_SOURCES_HEADER_RE = re.compile(
+    r"\n(?:\*\*)?sources:(?:\*\*)?\s*\n",
+    re.IGNORECASE,
+)
+_SOURCE_LINE_RE = re.compile(
+    r"^- \[(?P<title>[^\]]+)\]\((?P<url>[^)]+)\)",
+    re.MULTILINE,
+)
+_default_retriever: RetrieverBase | None = None
 
-_retriever: HybridRetriever | None = None
+
+@dataclass(frozen=True)
+class ToolLoopExecution:
+    """Structured result returned by a provider loop."""
+
+    answer_markdown: str = ""
+    retrieved: list[SearchResult] = field(default_factory=list)
+    grounding_verdict: GroundingVerdict | None = None
+    grounding_query: str | None = None
 
 
-def _get_retriever() -> HybridRetriever:
-    global _retriever
-    if _retriever is None:
-        _retriever = HybridRetriever()
-    return _retriever
+ToolLoopRunner = Callable[
+    [str, list["Message"], RetrieverBase],
+    Awaitable[ToolLoopExecution],
+]
 
 
 async def run_tool_loop(
@@ -59,27 +86,24 @@ async def run_tool_loop(
     *,
     store: "ConversationStore | None" = None,
     max_turns: int = 10,
+    retriever: RetrieverBase | None = None,
+    llm_runner: ToolLoopRunner | None = None,
 ) -> ChatResponse:
-    """Process a user message through the agent tool loop.
-
-    When ``store`` is provided, the prior history is loaded, the new
-    user turn is persisted before generation, and the assistant turn is
-    persisted afterwards.  When ``store`` is ``None`` the function
-    still returns a valid response (used by legacy contract tests).
-    """
+    """Process a user message through the agent tool loop."""
     if store is not None:
         cid = store.get_or_create(conversation_id)
     else:
         cid = conversation_id or str(uuid.uuid4())
 
-    history: "list[Message]" = []
+    history: list[Message] = []
     if store is not None:
         history = store.get_history(cid, max_turns=max_turns)
         try:
             store.append_user_message(cid, message)
         except Exception:
             logger.exception(
-                "Failed to persist user message for conversation %s", cid
+                "Failed to persist user message for conversation %s",
+                cid,
             )
             raise HTTPException(
                 status_code=500,
@@ -100,25 +124,61 @@ async def run_tool_loop(
             status=ChatStatus.NOT_FOUND,
             answer_markdown=(
                 "Your question is a bit short — could you give me more detail? "
-                "For example: *\"What are the FAFSA deadlines at CPP?\"* or "
-                "*\"Where is the financial aid office?\"*"
+                'For example: *"What are the FAFSA deadlines at CPP?"* or '
+                '*"Where is the financial aid office?"*'
             ),
             citations=[],
         )
     else:
-        response = await _run_llm_loop(normalized.normalized_text, cid, history)
+        active_retriever = retriever or _get_default_retriever()
+        active_runner = llm_runner or _run_llm_loop
+
+        if active_retriever is None:
+            response = ChatResponse(
+                conversation_id=cid,
+                status=ChatStatus.ERROR,
+                answer_markdown=(
+                    "The retrieval backend is not ready yet. Build the search "
+                    "artifacts and restart the API."
+                ),
+                citations=[],
+            )
+        else:
+            try:
+                execution = await active_runner(
+                    normalized.normalized_text,
+                    history,
+                    active_retriever,
+                )
+            except Exception as exc:
+                logger.exception("Tool loop failed: %s", exc)
+                response = ChatResponse(
+                    conversation_id=cid,
+                    status=ChatStatus.ERROR,
+                    answer_markdown=(
+                        "Sorry, something went wrong. Please try again."
+                    ),
+                    citations=[],
+                )
+            else:
+                response = _build_response_from_execution(
+                    cid,
+                    normalized.normalized_text,
+                    execution,
+                )
 
     if store is not None:
         try:
             store.append_assistant_message(
                 cid,
                 response.answer_markdown,
-                [c.model_dump() for c in response.citations],
+                [citation.model_dump() for citation in response.citations],
                 response.status.value,
             )
         except Exception:
             logger.exception(
-                "Failed to persist assistant message for conversation %s", cid
+                "Failed to persist assistant message for conversation %s",
+                cid,
             )
 
     return response
@@ -126,61 +186,33 @@ async def run_tool_loop(
 
 async def _run_llm_loop(
     message: str,
-    conversation_id: str,
-    history: "list[Message]",
-) -> ChatResponse:
-    """Run the real LLM tool-calling loop with hybrid retrieval."""
+    history: list[Message],
+    retriever: RetrieverBase,
+) -> ToolLoopExecution:
+    """Run the configured provider loop."""
     provider = get_provider()
     client = get_llm_client()
-    retriever = _get_retriever()
 
-    messages: list[dict] = [{"role": "user", "content": message}]
-    retrieved: list[SearchResult] = []
+    if provider is LLMProvider.OPENAI:
+        return await _openai_loop(client, message, history, retriever)
 
-    try:
-        if provider is LLMProvider.OPENAI:
-            answer, retrieved = await _openai_loop(client, messages, retriever, history)
-        else:
-            answer, retrieved = await _gemini_loop(client, messages, retriever, history)
-    except Exception as exc:
-        logger.exception("Tool loop failed: %s", exc)
-        return ChatResponse(
-            conversation_id=conversation_id,
-            status=ChatStatus.ERROR,
-            answer_markdown="Sorry, something went wrong. Please try again.",
-            citations=[],
-        )
-
-    if not answer:
-        return ChatResponse(
-            conversation_id=conversation_id,
-            status=ChatStatus.NOT_FOUND,
-            answer_markdown="I couldn't find information about that in the CPP knowledge base.",
-            citations=[],
-        )
-
-    return ChatResponse(
-        conversation_id=conversation_id,
-        status=ChatStatus.ANSWERED,
-        answer_markdown=answer,
-        citations=_extract_citations(answer, retrieved),
-    )
+    return await _gemini_loop(client, message, history, retriever)
 
 
 async def _openai_loop(
-    client,
-    messages: list[dict],
-    retriever: HybridRetriever,
-    history: "list[Message]",
-) -> tuple[str, list[SearchResult]]:
+    client: object,
+    message: str,
+    history: list[Message],
+    retriever: RetrieverBase,
+) -> ToolLoopExecution:
     """Run the OpenAI tool-calling loop."""
     all_retrieved: list[SearchResult] = []
-
     full_messages = (
         [{"role": "system", "content": SYSTEM_PROMPT}]
         + _history_to_openai(history)
-        + messages
+        + [{"role": "user", "content": message}]
     )
+    grounding_checked = False
 
     while True:
         response = client.chat.completions.create(
@@ -189,11 +221,13 @@ async def _openai_loop(
             tools=[_SEARCH_TOOL],
             tool_choice="auto",
         )
-
         choice = response.choices[0]
 
         if choice.finish_reason == "stop":
-            return choice.message.content or "", all_retrieved
+            return ToolLoopExecution(
+                answer_markdown=choice.message.content or "",
+                retrieved=all_retrieved,
+            )
 
         if choice.finish_reason == "tool_calls":
             full_messages.append(choice.message)
@@ -207,30 +241,38 @@ async def _openai_loop(
                 results = await retriever.search_corpus(query, top_k=top_k)
                 all_retrieved.extend(results)
 
-                full_messages.append({
-                    "role": "tool",
-                    "tool_call_id": tool_call.id,
-                    "content": _format_results_for_llm(results),
-                })
+                if not grounding_checked:
+                    grounding_checked = True
+                    failure = _weak_retrieval_execution(query, results)
+                    if failure is not None:
+                        return failure
+
+                full_messages.append(
+                    {
+                        "role": "tool",
+                        "tool_call_id": tool_call.id,
+                        "content": _format_results_for_llm(results),
+                    }
+                )
 
             continue
 
         break
 
-    return "", all_retrieved
+    return ToolLoopExecution(retrieved=all_retrieved)
 
 
 async def _gemini_loop(
-    client,
-    messages: list[dict],
-    retriever: HybridRetriever,
-    history: "list[Message]",
-) -> tuple[str, list[SearchResult]]:
+    client: object,
+    message: str,
+    history: list[Message],
+    retriever: RetrieverBase,
+) -> ToolLoopExecution:
     """Run the Gemini tool-calling loop."""
     from google.genai import types  # type: ignore[import-untyped]
 
     all_retrieved: list[SearchResult] = []
-
+    grounding_checked = False
     gemini_tool = types.Tool(
         function_declarations=[
             types.FunctionDeclaration(
@@ -247,9 +289,8 @@ async def _gemini_loop(
             )
         ]
     )
-
     contents = _history_to_gemini(history, types) + [
-        types.Content(role="user", parts=[types.Part(text=messages[-1]["content"])])
+        types.Content(role="user", parts=[types.Part(text=message)])
     ]
     config = types.GenerateContentConfig(
         system_instruction=SYSTEM_PROMPT,
@@ -262,28 +303,36 @@ async def _gemini_loop(
             contents=contents,
             config=config,
         )
-
         candidate = response.candidates[0]
         contents.append(candidate.content)
 
-        tool_calls = [p for p in candidate.content.parts if p.function_call]
-
+        tool_calls = [part for part in candidate.content.parts if part.function_call]
         if not tool_calls:
             text_parts = [
-                p.text for p in candidate.content.parts
-                if hasattr(p, "text") and p.text
+                part.text
+                for part in candidate.content.parts
+                if hasattr(part, "text") and part.text
             ]
-            return "\n".join(text_parts), all_retrieved
+            return ToolLoopExecution(
+                answer_markdown="\n".join(text_parts),
+                retrieved=all_retrieved,
+            )
 
         tool_results = []
         for part in tool_calls:
-            fc = part.function_call
-            query = fc.args.get("query", "")
-            top_k = fc.args.get("top_k", 5)
+            function_call = part.function_call
+            query = function_call.args.get("query", "")
+            top_k = function_call.args.get("top_k", 5)
 
             logger.info("search_corpus(%r, top_k=%d)", query, top_k)
             results = await retriever.search_corpus(query, top_k=top_k)
             all_retrieved.extend(results)
+
+            if not grounding_checked:
+                grounding_checked = True
+                failure = _weak_retrieval_execution(query, results)
+                if failure is not None:
+                    return failure
 
             tool_results.append(
                 types.Part(
@@ -296,25 +345,98 @@ async def _gemini_loop(
 
         contents.append(types.Content(role="tool", parts=tool_results))
 
-    return "", all_retrieved
+
+def _build_response_from_execution(
+    conversation_id: str,
+    normalized_query: str,
+    execution: ToolLoopExecution,
+) -> ChatResponse:
+    if (
+        execution.grounding_verdict is not None
+        and not execution.grounding_verdict.grounded
+    ):
+        refusal_query = execution.grounding_query or normalized_query
+        return build_refusal_response(
+            conversation_id,
+            execution.grounding_verdict,
+            RefusalContext(normalized_query=refusal_query),
+        )
+
+    if not execution.answer_markdown:
+        return ChatResponse(
+            conversation_id=conversation_id,
+            status=ChatStatus.NOT_FOUND,
+            answer_markdown=(
+                "I couldn't find information about that in the CPP knowledge base."
+            ),
+            citations=[],
+        )
+
+    answer_body, citations = _extract_answer_and_citations(
+        execution.answer_markdown,
+        execution.retrieved,
+    )
+    return ChatResponse(
+        conversation_id=conversation_id,
+        status=ChatStatus.ANSWERED,
+        answer_markdown=answer_body,
+        citations=citations,
+    )
 
 
-def _history_to_openai(history: "list[Message]") -> list[dict]:
-    messages = []
-    for turn in history:
-        messages.append({"role": "user", "content": turn.user_text})
-        messages.append({"role": "assistant", "content": turn.assistant_text})
-    return messages
+def _weak_retrieval_execution(
+    query: str,
+    results: list[SearchResult],
+) -> ToolLoopExecution | None:
+    verdict = assess_confidence(results, get_settings().grounding_config)
+    if verdict.grounded:
+        return None
+    return ToolLoopExecution(
+        retrieved=list(results),
+        grounding_verdict=verdict,
+        grounding_query=normalize(query).normalized_text,
+    )
 
 
-def _history_to_gemini(history: "list[Message]", types) -> list:
+def _get_default_retriever() -> RetrieverBase | None:
+    global _default_retriever
+    if _default_retriever is not None:
+        return _default_retriever
+
+    try:
+        from src.retrieval.hybrid_retriever import HybridRetriever
+
+        _default_retriever = HybridRetriever()
+        return _default_retriever
+    except Exception:
+        logger.exception("Failed to initialize HybridRetriever")
+
+    try:
+        from src.retrieval.whoosh_retriever import WhooshRetriever
+
+        _default_retriever = WhooshRetriever()
+        return _default_retriever
+    except Exception:
+        logger.exception("Failed to initialize WhooshRetriever")
+        return None
+
+
+def _history_to_openai(history: list[Message]) -> list[dict[str, str]]:
+    return [
+        {
+            "role": "assistant" if turn.role == "assistant" else "user",
+            "content": turn.content,
+        }
+        for turn in history
+    ]
+
+
+def _history_to_gemini(history: list[Message], types: object) -> list[object]:
     contents = []
     for turn in history:
+        role = "model" if turn.role == "assistant" else "user"
         contents.append(
-            types.Content(role="user", parts=[types.Part(text=turn.user_text)])
-        )
-        contents.append(
-            types.Content(role="model", parts=[types.Part(text=turn.assistant_text)])
+            types.Content(role=role, parts=[types.Part(text=turn.content)])
         )
     return contents
 
@@ -322,23 +444,86 @@ def _history_to_gemini(history: "list[Message]", types) -> list:
 def _format_results_for_llm(results: list[SearchResult]) -> str:
     if not results:
         return "No results found."
+
     parts = []
-    for i, r in enumerate(results, 1):
-        parts.append(f"[{i}] {r.title}\nURL: {r.url}\n{r.snippet}")
+    for index, result in enumerate(results, start=1):
+        parts.append(
+            "\n".join(
+                [
+                    f"[{index}] {result.title}",
+                    f"URL: {result.url}",
+                    f"Snippet: {result.snippet}",
+                    f"Chunk ID: {result.chunk_id}",
+                ]
+            )
+        )
     return "\n\n".join(parts)
 
 
-def _extract_citations(answer: str, retrieved: list[SearchResult]) -> list[Citation]:
+def _extract_answer_and_citations(
+    answer: str,
+    retrieved: list[SearchResult],
+) -> tuple[str, list[Citation]]:
+    body, footer = _split_sources_footer(answer)
+    citations = _extract_citations_from_footer(footer, retrieved)
+    if not citations:
+        citations = _extract_citations_from_text(answer, retrieved)
+    cleaned_body = body.strip() or answer.strip()
+    return cleaned_body, citations
+
+
+def _split_sources_footer(answer: str) -> tuple[str, str]:
+    match = _SOURCES_HEADER_RE.search(answer)
+    if match is None:
+        return answer, ""
+    return answer[: match.start()].rstrip(), answer[match.end() :].strip()
+
+
+def _extract_citations_from_footer(
+    footer: str,
+    retrieved: list[SearchResult],
+) -> list[Citation]:
+    if not footer or not retrieved:
+        return []
+
+    by_url = {normalize_url(result.url): result for result in retrieved}
+    by_title = {result.title.lower(): result for result in retrieved}
+    seen_urls: set[str] = set()
+    citations: list[Citation] = []
+
+    for match in _SOURCE_LINE_RE.finditer(footer):
+        normalized_footer_url = normalize_url(match.group("url"))
+        title = match.group("title").strip().lower()
+        result = by_url.get(normalized_footer_url) or by_title.get(title)
+        if result is None or result.url in seen_urls:
+            continue
+        citations.append(
+            Citation(
+                title=result.title,
+                url=result.url,
+                snippet=result.snippet,
+            )
+        )
+        seen_urls.add(result.url)
+
+    return citations
+
+
+def _extract_citations_from_text(
+    answer: str,
+    retrieved: list[SearchResult],
+) -> list[Citation]:
     if not retrieved:
         return []
 
     seen_urls: set[str] = set()
     citations: list[Citation] = []
+    lower_answer = answer.lower()
 
     for result in retrieved:
         if result.url in seen_urls:
             continue
-        if result.url in answer or result.title in answer:
+        if result.url in answer or result.title.lower() in lower_answer:
             citations.append(
                 Citation(
                     title=result.title,

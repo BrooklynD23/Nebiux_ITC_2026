@@ -1,4 +1,4 @@
-"""Integration tests for multi-turn /chat wiring against ConversationStore."""
+"""Integration tests for multi-turn chat wiring against ConversationStore."""
 
 from __future__ import annotations
 
@@ -6,120 +6,116 @@ import uuid
 from typing import Any
 
 import pytest
-from httpx import AsyncClient
+from fastapi import HTTPException
 
-from src.agent import tool_loop as tool_loop_module
+from src.api.routes import chat
 from src.conversation import ConversationStore, Message
+from src.models import ChatRequest
+from tests.fakes import FakeRetriever, fake_llm_runner
 
 
 @pytest.fixture
-def spy(monkeypatch: pytest.MonkeyPatch) -> list[dict[str, Any]]:
-    """Replace the stub generator with a spy capturing its arguments."""
+def spy() -> tuple[list[dict[str, Any]], object]:
+    """Wrap the fake runner and capture the history passed into it."""
     captured: list[dict[str, Any]] = []
-    real = tool_loop_module._generate_stub_response
 
-    def _spy(message: str, cid: str, history: list[Message]):
+    async def _spy(message: str, history: list[Message], retriever):
         captured.append(
             {
                 "message": message,
-                "conversation_id": cid,
                 "history": list(history),
             }
         )
-        return real(message, cid, history)
+        return await fake_llm_runner(message, history, retriever)
 
-    monkeypatch.setattr(tool_loop_module, "_generate_stub_response", _spy)
-    return captured
+    return captured, _spy
 
 
 @pytest.mark.asyncio
 async def test_first_turn_creates_conversation_and_persists_user_message(
-    client_with_store: AsyncClient,
     store: ConversationStore,
 ) -> None:
-    async with client_with_store as client:
-        response = await client.post(
-            "/chat",
-            json={"message": "Tell me about parking"},
-        )
-    assert response.status_code == 200
-    cid = response.json()["conversation_id"]
+    response = await chat(
+        ChatRequest(message="Tell me about parking"),
+        store=store,
+        retriever=FakeRetriever(),
+        llm_runner=fake_llm_runner,
+    )
+    cid = response.conversation_id
     history = store.get_history(cid, max_turns=10)
-    assert [m.role for m in history] == ["user", "assistant"]
+    assert [message.role for message in history] == ["user", "assistant"]
     assert history[0].content == "Tell me about parking"
 
 
 @pytest.mark.asyncio
 async def test_second_turn_sees_prior_history(
-    client_with_store: AsyncClient,
-    spy: list[dict[str, Any]],
+    store: ConversationStore,
+    spy: tuple[list[dict[str, Any]], object],
 ) -> None:
-    cid = str(uuid.uuid4())
-    async with client_with_store as client:
-        await client.post(
-            "/chat",
-            json={"conversation_id": cid, "message": "What are parking rules?"},
-        )
-        await client.post(
-            "/chat",
-            json={"conversation_id": cid, "message": "And on weekends?"},
-        )
-    assert len(spy) == 2
-    first_history = spy[0]["history"]
-    second_history = spy[1]["history"]
+    captured, runner = spy
+    cid = uuid.uuid4()
+    await chat(
+        ChatRequest(conversation_id=cid, message="What are parking rules?"),
+        store=store,
+        retriever=FakeRetriever(),
+        llm_runner=runner,
+    )
+    await chat(
+        ChatRequest(conversation_id=cid, message="And on weekends?"),
+        store=store,
+        retriever=FakeRetriever(),
+        llm_runner=runner,
+    )
+    assert len(captured) == 2
+    first_history = captured[0]["history"]
+    second_history = captured[1]["history"]
     assert first_history == []
-    assert [m.role for m in second_history] == ["user", "assistant"]
+    assert [message.role for message in second_history] == ["user", "assistant"]
     assert second_history[0].content == "What are parking rules?"
 
 
 @pytest.mark.asyncio
 async def test_unknown_client_supplied_conversation_id_is_accepted(
-    client_with_store: AsyncClient,
     store: ConversationStore,
 ) -> None:
-    cid = str(uuid.uuid4())
-    async with client_with_store as client:
-        response = await client.post(
-            "/chat",
-            json={"conversation_id": cid, "message": "Hello"},
-        )
-    assert response.status_code == 200
-    assert response.json()["conversation_id"] == cid
-    assert len(store.get_history(cid, max_turns=10)) == 2
+    cid = uuid.uuid4()
+    response = await chat(
+        ChatRequest(conversation_id=cid, message="Hello"),
+        store=store,
+        retriever=FakeRetriever(),
+        llm_runner=fake_llm_runner,
+    )
+    assert response.conversation_id == str(cid)
+    assert len(store.get_history(str(cid), max_turns=10)) == 2
 
 
 @pytest.mark.asyncio
 async def test_history_trims_at_configured_limit(
-    client_with_store: AsyncClient,
-    spy: list[dict[str, Any]],
+    store: ConversationStore,
+    spy: tuple[list[dict[str, Any]], object],
 ) -> None:
-    cid = str(uuid.uuid4())
-    async with client_with_store as client:
-        for i in range(12):
-            await client.post(
-                "/chat",
-                json={
-                    "conversation_id": cid,
-                    "message": f"question {i}",
-                },
-            )
-        await client.post(
-            "/chat",
-            json={
-                "conversation_id": cid,
-                "message": "final question",
-            },
+    captured, runner = spy
+    cid = uuid.uuid4()
+    for index in range(12):
+        await chat(
+            ChatRequest(conversation_id=cid, message=f"parking question {index}"),
+            store=store,
+            retriever=FakeRetriever(),
+            llm_runner=runner,
         )
-    final_history = spy[-1]["history"]
-    # Default max_turns = 10 → up to 20 messages
+    await chat(
+        ChatRequest(conversation_id=cid, message="final parking question"),
+        store=store,
+        retriever=FakeRetriever(),
+        llm_runner=runner,
+    )
+    final_history = captured[-1]["history"]
     assert len(final_history) == 20
-    # Newest window should include the immediately prior question
-    assert final_history[-2].content == "question 11"
+    assert final_history[-2].content == "parking question 11"
 
 
 @pytest.mark.asyncio
 async def test_user_append_failure_returns_500(
-    client_with_store: AsyncClient,
     store: ConversationStore,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -127,17 +123,18 @@ async def test_user_append_failure_returns_500(
         raise RuntimeError("disk full")
 
     monkeypatch.setattr(store, "append_user_message", _boom)
-    async with client_with_store as client:
-        response = await client.post(
-            "/chat",
-            json={"message": "hi"},
+    with pytest.raises(HTTPException) as exc_info:
+        await chat(
+            ChatRequest(message="hi"),
+            store=store,
+            retriever=FakeRetriever(),
+            llm_runner=fake_llm_runner,
         )
-    assert response.status_code == 500
+    assert exc_info.value.status_code == 500
 
 
 @pytest.mark.asyncio
 async def test_assistant_append_failure_still_returns_answer(
-    client_with_store: AsyncClient,
     store: ConversationStore,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -145,12 +142,11 @@ async def test_assistant_append_failure_still_returns_answer(
         raise RuntimeError("disk full")
 
     monkeypatch.setattr(store, "append_assistant_message", _boom)
-    async with client_with_store as client:
-        response = await client.post(
-            "/chat",
-            json={"message": "Tell me about parking"},
-        )
-    assert response.status_code == 200
-    body = response.json()
-    assert body["status"] == "answered"
-    assert body["answer_markdown"]
+    response = await chat(
+        ChatRequest(message="Tell me about parking"),
+        store=store,
+        retriever=FakeRetriever(),
+        llm_runner=fake_llm_runner,
+    )
+    assert response.status.value == "answered"
+    assert response.answer_markdown

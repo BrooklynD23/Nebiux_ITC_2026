@@ -1,15 +1,16 @@
 # V0.1 Source of Truth
 
-Last updated: 2026-04-05
+Last updated: 2026-04-13
 
 This folder is the canonical planning workspace for V0.1. If a top-level V0.1 document disagrees with anything in this folder, this folder wins.
 
 ## Current Status
 
-- Current sprint: `Sprint 0 - Contracts and Parallel Work Setup`
+- Current sprint: `Sprint 2 - Core End-to-End`
 - Project route: `Balanced core with one gated showcase lane`
 - Team model: `3 contributors working in parallel after contracts freeze`
 - Core demo target: local web app with chat, one search tool, grounded answers, citations, and multi-turn conversation
+- Backend state: provider-backed `/chat`, SQLite conversation persistence, hybrid retrieval with BM25 fallback, query normalization, and grounding refusal gating are wired
 
 ## Scope Guardrails
 
@@ -67,6 +68,7 @@ Merge to `main` via pull request. Rebase before merging to keep history linear. 
 ### Contributor B
 - Primary lane: backend, tool loop, citations, conversation state
 - Likely paths: `src/api/`, `src/agent/`, `src/config.py`, `.env.example`
+- Current focus: keep the live tool loop, grounding gate, citation parsing, and retriever fallback aligned with the competition prompt
 
 ### Contributor C
 - Primary lane: frontend, thin eval set, planning status, demo-facing polish

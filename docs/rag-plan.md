@@ -13,7 +13,15 @@ Implement `src/retrieval/chroma_retriever.py`. Embeds the query and does a vecto
 Implement `src/retrieval/hybrid_retriever.py`. Runs both retrievers, fuses scores with Reciprocal Rank Fusion, returns unified ranked results.
 
 ## Step 5 — System Prompt
-Write `src/agent/prompts.py`. Grounds the LLM to CPP campus info, tells it how to call `search_corpus`, sets citation format.
+Use `src/agent/system_prompt.py` as the canonical grounding prompt. Keep `src/agent/prompts.py` only as a compatibility alias.
 
 ## Step 6 — Real Tool Loop
-Replace the stub in `src/agent/tool_loop.py`. Calls LLM → detects `search_corpus` tool call → runs hybrid retriever → feeds chunks back → returns final answer with citations.
+`src/agent/tool_loop.py` now owns the live flow:
+
+- normalize query
+- short-circuit ambiguous requests
+- call the provider tool loop
+- execute `search_corpus` against the app-scoped retriever
+- gate weak retrieval with `src.agent.grounding`
+- return grounded markdown plus citations
+- persist multi-turn conversation state through `ConversationStore`
