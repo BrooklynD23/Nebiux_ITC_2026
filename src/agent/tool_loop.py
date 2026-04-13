@@ -174,7 +174,7 @@ async def run_tool_loop(
                 )
                 log_event(
                     logger,
-                    logging.INFO,
+                    logging.DEBUG,
                     "chat.retrieval_completed",
                     conversation_id=cid,
                     normalized_query=normalized.normalized_text,

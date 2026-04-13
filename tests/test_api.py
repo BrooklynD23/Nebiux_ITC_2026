@@ -5,6 +5,7 @@ from __future__ import annotations
 import uuid
 
 import pytest
+from fastapi import HTTPException
 from pydantic import ValidationError
 
 from src.api.main import health
@@ -117,7 +118,7 @@ class TestChatEndpoint:
 
     @pytest.mark.asyncio
     async def test_chat_debug_requires_admin_authorization(self) -> None:
-        with pytest.raises(Exception) as exc_info:
+        with pytest.raises(HTTPException) as exc_info:
             await chat(
                 ChatRequest(message="Tell me about CPP", debug=True),
                 store=None,
@@ -126,7 +127,7 @@ class TestChatEndpoint:
                 admin_debug_authorized=False,
             )
 
-        assert getattr(exc_info.value, "status_code", None) == 401
+        assert exc_info.value.status_code == 401
 
     @pytest.mark.asyncio
     async def test_chat_debug_returns_debug_info_when_authorized(self) -> None:

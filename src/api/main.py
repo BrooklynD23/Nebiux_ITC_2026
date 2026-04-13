@@ -31,7 +31,6 @@ def _dir_has_entries(path: str) -> bool:
 
 
 settings = get_settings()
-configure_logging(settings.log_level)
 
 
 def _build_retriever() -> tuple[RetrieverBase | None, str]:
@@ -55,6 +54,7 @@ def _build_retriever() -> tuple[RetrieverBase | None, str]:
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Open the conversation store on startup and close it on shutdown."""
     cfg = get_settings()
+    configure_logging(cfg.log_level)
     store: ConversationStore | None = None
     retriever, retriever_mode = _build_retriever()
     try:

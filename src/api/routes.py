@@ -38,7 +38,7 @@ def get_llm_runner(request: Request) -> object | None:
     return getattr(request.app.state, "llm_runner", None)
 
 
-@router.post("/chat", response_model=ChatResponse)
+@router.post("/chat", response_model=ChatResponse, response_model_exclude_none=True)
 async def chat(
     request: ChatRequest,
     store: ConversationStore | None = Depends(get_conversation_store),
