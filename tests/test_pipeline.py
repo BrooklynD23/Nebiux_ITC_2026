@@ -98,6 +98,8 @@ def test_pipeline_produces_expected_outputs(
     assert (output_dir / "cleaned" / "admissions.md").is_file()
     assert (output_dir / "metadata.json").is_file()
     assert (output_dir / "filter_report.json").is_file()
+    assert (output_dir / "freshness_manifest.json").is_file()
+    assert (output_dir / "conflict_review.md").is_file()
 
     # Verify excluded files are NOT in cleaned/
     assert not (output_dir / "cleaned" / "old_page.md").exists()
@@ -125,6 +127,41 @@ def test_pipeline_metadata_structure(
     assert entry["word_count"] > 30
     assert entry["heading_count"] >= 2
     assert isinstance(entry["quality_flags"], list)
+
+
+def test_pipeline_freshness_manifest_structure(
+    mini_corpus: Path, tmp_path: Path
+) -> None:
+    output_dir = tmp_path / "output"
+    output_dir.mkdir()
+
+    run_pipeline(mini_corpus, output_dir)
+
+    manifest = json.loads((output_dir / "freshness_manifest.json").read_text())
+    assert isinstance(manifest, list)
+    assert len(manifest) == 1
+
+    entry = manifest[0]
+    assert entry["filename"] == "admissions.md"
+    assert entry["keep"] is True
+    assert entry["alias_count"] == 1
+    assert entry["outdated_risk_level"] in {"low", "medium", "high"}
+    assert "outdated_risk_score" in entry
+    assert isinstance(entry["risk_reasons"], list)
+    assert "file_mtime_iso" in entry
+
+
+def test_pipeline_conflict_review_structure(
+    mini_corpus: Path, tmp_path: Path
+) -> None:
+    output_dir = tmp_path / "output"
+    output_dir.mkdir()
+
+    run_pipeline(mini_corpus, output_dir)
+
+    report = (output_dir / "conflict_review.md").read_text()
+    assert report.startswith("# Conflict Review Report")
+    assert "No conflicts detected" in report
 
 
 def test_pipeline_filter_report_structure(
@@ -189,3 +226,8 @@ def test_pipeline_empty_corpus(tmp_path: Path) -> None:
     report = run_pipeline(corpus_dir, output_dir)
     assert report.total_source_files == 0
     assert report.kept == 0
+    assert report.excluded == 0
+    assert (output_dir / "metadata.json").is_file()
+    assert (output_dir / "filter_report.json").is_file()
+    assert (output_dir / "freshness_manifest.json").is_file()
+    assert (output_dir / "conflict_review.md").is_file()

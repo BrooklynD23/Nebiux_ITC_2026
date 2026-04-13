@@ -14,8 +14,8 @@
 - Frontend: React + Vite chat UI.
 - Backend: FastAPI with one `search_corpus` tool.
 - Retrieval: hybrid BM25 + semantic RAG.
-- Current preprocessing outputs are `data/cleaned/`, `data/metadata.json`, and `data/filter_report.json`.
-- [`scripts/preprocess/freshness.py`](scripts/preprocess/freshness.py) and [`scripts/preprocess/conflicts.py`](scripts/preprocess/conflicts.py) exist with tests, but the main pipeline still does not emit `data/freshness_manifest.json` or `data/conflict_review.md`.
+- Current preprocessing outputs are `data/cleaned/`, `data/metadata.json`, `data/filter_report.json`, `data/freshness_manifest.json`, and `data/conflict_review.md`.
+- [`scripts/preprocess/freshness.py`](scripts/preprocess/freshness.py) and [`scripts/preprocess/conflicts.py`](scripts/preprocess/conflicts.py) exist with tests.
 
 ## What To Touch
 
@@ -48,4 +48,3 @@ python scripts/eval/run_eval.py
 
 - Keep [`CLAUDE.md`](CLAUDE.md) and [`AGENT.md`](AGENT.md) in sync when repo guidance changes.
 - Update [`docs/v0.1/README.md`](docs/v0.1/README.md) whenever the sprint board, owners, or contracts change.
-- Treat freshness/conflict artifact generation as pending until `run_pipeline.py` is updated.

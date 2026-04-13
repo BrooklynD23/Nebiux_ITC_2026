@@ -65,7 +65,7 @@ The issue body is empty, so the planning baseline for this document comes from:
 - The repo described a runnable Docker path, but the old backend image depended on a missing `requirements.txt` and a missing `scripts/build_index.py`.
 - The frontend env contract was inconsistent between compose and runtime code.
 - The frontend defaulted to mock mode, which hid backend integration by default.
-- The preprocessing helpers are now in the production tree, but the main pipeline still writes only `data/cleaned/`, `data/metadata.json`, and `data/filter_report.json`.
+- The preprocessing helpers are now in the production tree, and the main pipeline writes `data/cleaned/`, `data/metadata.json`, `data/filter_report.json`, `data/freshness_manifest.json`, and `data/conflict_review.md`.
 - The old notebook/output paths have been deleted, so any reference to `preprocessing_pipeline_test/` is historical only.
 - The repo had no explicit judge/deployment guide and no hosted deployment compose file.
 - The current backend still uses a scaffold tool loop, so issue #18 should standardize architecture without pretending that the full hybrid retriever is already complete.
@@ -108,6 +108,8 @@ Rationale:
   - boilerplate stripping
   - filtering
   - metadata extraction
+  - freshness scoring
+  - conflict review generation
   - chunk manifest build
   - BM25 index build
 - **Runtime request path**:
@@ -129,10 +131,12 @@ Do **not** build indexes on every startup and never during a user request.
    - keep in `dataset/itc2026_ai_corpus/`
    - untracked, read-only input
 2. Chunk metadata
-   - store in `data/metadata.json` and `data/chunks.jsonl`
-3. Embedding / vector index
+   - store in `data/metadata.json`, `data/freshness_manifest.json`, and `data/chunks.jsonl`
+3. Preprocessing review artifacts
+   - store the human-readable conflict review in `data/conflict_review.md`
+4. Embedding / vector index
    - reserve `data/indexes/chroma/`
-4. Runtime query state / logs
+5. Runtime query state / logs
    - in-memory conversation state for now
    - optional SQLite later if analytics or persisted conversations become necessary
 

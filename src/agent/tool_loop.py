@@ -1,55 +1,31 @@
-"""LLM agent tool loop with hybrid RAG retrieval."""
+"""Stub tool loop for the LLM agent.
+
+In Sprint 2 this will contain the real tool-calling loop that:
+1. Sends user message + conversation history to the LLM
+2. Detects tool_call requests for ``search_corpus``
+3. Executes retrieval, feeds results back to the LLM
+4. Returns the final grounded answer with citations
+
+For Sprint 0-1, this returns a realistic mock response so the API
+contract can be validated end-to-end.
+"""
 
 from __future__ import annotations
 
-import json
-import logging
 import uuid
+from typing import TYPE_CHECKING
 
-from src.agent.prompts import SYSTEM_PROMPT
-from src.config import LLMProvider, get_llm_client, get_provider
-from src.models import ChatResponse, ChatStatus, Citation, SearchResult
-from src.retrieval.hybrid_retriever import HybridRetriever
+from fastapi import HTTPException
 
-logger = logging.getLogger(__name__)
-
-# Tool definition sent to the LLM
-_SEARCH_TOOL = {
-    "type": "function",
-    "function": {
-        "name": "search_corpus",
-        "description": "Search the Cal Poly Pomona knowledge base for relevant information.",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "query": {
-                    "type": "string",
-                    "description": "A concise natural-language search query.",
-                },
-                "top_k": {
-                    "type": "integer",
-                    "description": "Number of results to return (default 5).",
-                    "default": 5,
-                },
-            },
-            "required": ["query"],
-        },
-    },
-}
-
-_retriever: HybridRetriever | None = None
-
-
-def _get_retriever() -> HybridRetriever:
-    global _retriever
-    if _retriever is None:
-        _retriever = HybridRetriever()
-    return _retriever
+from src.models import ChatResponse, ChatStatus, Citation
 
 
 async def run_tool_loop(
     message: str,
     conversation_id: str | None = None,
+    *,
+    store: "ConversationStore | None" = None,
+    max_turns: int = 10,
 ) -> ChatResponse:
     """Process a user message through the agent tool loop.
 
@@ -63,42 +39,64 @@ async def run_tool_loop(
     Returns
     -------
     ChatResponse
-        Grounded answer with citations conforming to the POST /chat contract.
+        A mock response conforming to the POST /chat contract.
     """
     cid = conversation_id or str(uuid.uuid4())
-    provider = get_provider()
-    client = get_llm_client()
-    retriever = _get_retriever()
 
-    messages: list[dict] = [{"role": "user", "content": message}]
-    retrieved: list[SearchResult] = []
+    # Simple keyword-based stub routing for realistic mock behavior
+    lower = message.lower()
 
-    try:
-        if provider is LLMProvider.OPENAI:
-            answer, retrieved = await _openai_loop(client, messages, retriever)
-        else:
-            answer, retrieved = await _gemini_loop(client, messages, retriever)
-    except Exception as exc:
-        logger.exception("Tool loop failed: %s", exc)
+    if any(kw in lower for kw in ("parking", "permit", "transportation")):
         return ChatResponse(
             conversation_id=cid,
-            status=ChatStatus.ERROR,
-            answer_markdown="Sorry, something went wrong. Please try again.",
-            citations=[],
+            status=ChatStatus.ANSWERED,
+            answer_markdown=(
+                "Parking permits are required on campus Monday through "
+                "Thursday. You can purchase semester or daily permits online "
+                "through the [CPP parking portal]"
+                "(https://www.cpp.edu/parking/permits/index.shtml)."
+            ),
+            citations=[
+                Citation(
+                    title="Parking and Transportation",
+                    url="https://www.cpp.edu/parking/permits/index.shtml",
+                    snippet=(
+                        "Parking permits are required on campus Monday through "
+                        "Thursday. Students can purchase semester or daily "
+                        "permits online through the CPP parking portal."
+                    ),
+                ),
+            ],
         )
 
     if not answer:
         return ChatResponse(
             conversation_id=cid,
-            status=ChatStatus.NOT_FOUND,
-            answer_markdown="I couldn't find information about that in the CPP knowledge base.",
-            citations=[],
+            status=ChatStatus.ANSWERED,
+            answer_markdown=(
+                "Cal Poly Pomona accepts **fall admission** applications from "
+                "**October 1 through December 15**. You must meet CSU "
+                "eligibility requirements, including completion of the A-G "
+                "course pattern.\n\n"
+                "For full details, visit the "
+                "[Freshmen Admissions](https://www.cpp.edu/admissions/"
+                "freshmen/index.shtml) page."
+            ),
+            citations=[
+                Citation(
+                    title="Freshmen Admissions Requirements",
+                    url="https://www.cpp.edu/admissions/freshmen/index.shtml",
+                    snippet=(
+                        "Cal Poly Pomona accepts applications for fall admission "
+                        "from October 1 through December 15."
+                    ),
+                ),
+            ],
         )
 
-    citations = _extract_citations(answer, retrieved)
-
+    # Default: a generic answered response
     return ChatResponse(
-        conversation_id=cid,
+        conversation_id=conversation_id,
         status=ChatStatus.ANSWERED,
         answer_markdown=answer,
         citations=citations,

@@ -94,6 +94,37 @@ class TestChatEndpoint:
             assert "snippet" in citation
 
     @pytest.mark.asyncio
+    async def test_chat_ambiguous_query_returns_clarification(
+        self, async_client: AsyncClient
+    ) -> None:
+        async with async_client as client:
+            response = await client.post(
+                "/chat",
+                json={"message": "hi"},
+            )
+        assert response.status_code == 200
+        data = response.json()
+
+        assert data["status"] == "not_found"
+        assert data["citations"] == []
+        assert "could you give me more detail" in data["answer_markdown"]
+
+    @pytest.mark.asyncio
+    async def test_chat_normalized_query_hits_financial_aid_response(
+        self, async_client: AsyncClient
+    ) -> None:
+        async with async_client as client:
+            response = await client.post(
+                "/chat",
+                json={"message": "  FAFSA DUE WHEN?? "},
+            )
+        assert response.status_code == 200
+        data = response.json()
+
+        assert data["status"] == "answered"
+        assert data["citations"][0]["title"] == "Financial Aid and Scholarships"
+
+    @pytest.mark.asyncio
     async def test_chat_rejects_empty_message(
         self, async_client: AsyncClient
     ) -> None:
