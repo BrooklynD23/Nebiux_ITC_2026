@@ -42,3 +42,14 @@ def test_settings_builds_grounding_config() -> None:
     assert config.min_results == 2
     assert config.score_aggregation == "mean_top3"
     assert config.expected_top_k == 7
+
+
+def test_settings_parse_admin_token_and_log_level() -> None:
+    settings = Settings(
+        _env_file=None,
+        ADMIN_API_TOKEN="pilot-secret",
+        LOG_LEVEL="DEBUG",
+    )
+
+    assert settings.admin_api_token == "pilot-secret"
+    assert settings.log_level == "DEBUG"

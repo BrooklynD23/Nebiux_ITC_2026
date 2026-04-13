@@ -114,3 +114,31 @@ class TestChatEndpoint:
     def test_chat_rejects_invalid_conversation_id(self) -> None:
         with pytest.raises(ValidationError):
             ChatRequest(message="Hello", conversation_id="not-a-uuid")
+
+    @pytest.mark.asyncio
+    async def test_chat_debug_requires_admin_authorization(self) -> None:
+        with pytest.raises(Exception) as exc_info:
+            await chat(
+                ChatRequest(message="Tell me about CPP", debug=True),
+                store=None,
+                retriever=FakeRetriever(),
+                llm_runner=fake_llm_runner,
+                admin_debug_authorized=False,
+            )
+
+        assert getattr(exc_info.value, "status_code", None) == 401
+
+    @pytest.mark.asyncio
+    async def test_chat_debug_returns_debug_info_when_authorized(self) -> None:
+        response = await chat(
+            ChatRequest(message="Tell me about CPP", debug=True),
+            store=None,
+            retriever=FakeRetriever(),
+            llm_runner=fake_llm_runner,
+            admin_debug_authorized=True,
+        )
+
+        assert response.debug_info is not None
+        assert response.debug_info.raw_query == "Tell me about CPP"
+        assert response.debug_info.normalized_query == "tell me about Cal Poly Pomona"
+        assert response.debug_info.retrieved_chunks[0].chunk_id == "about-001"
