@@ -10,7 +10,7 @@ This folder is the canonical planning workspace for V0.1. If a top-level V0.1 do
 - Project route: `Balanced core with one gated showcase lane`
 - Team model: `3 contributors working in parallel after contracts freeze`
 - Core demo target: local web app with chat, one search tool, grounded answers, citations, and multi-turn conversation
-- Backend state: provider-backed `/chat`, SQLite conversation persistence, hybrid retrieval with BM25 fallback, query normalization, and grounding refusal gating are wired
+- Backend state: provider-backed `/chat`, SQLite conversation persistence, hybrid retrieval with BM25 fallback, query normalization, structured logging, token-gated debug info, admin review endpoints, and grounding refusal gating are wired
 
 ## Scope Guardrails
 
@@ -107,6 +107,7 @@ If you need a change in a file you don't own, add a comment on your PR tagging t
   - citation object shape
   - refusal and error status shape
 - Lock the `conversation_id` behavior before frontend work starts.
+- Expose backend-only admin review contracts for the future dashboard without adding student accounts.
 
 ### Contributor C
 - Create mock chat fixtures that match the frozen response contract.
