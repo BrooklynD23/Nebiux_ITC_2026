@@ -121,3 +121,94 @@ def test_concurrent_writes_are_serialized(store: ConversationStore) -> None:
     contents = {m.content for m in history}
     expected = {f"{p}-{i}" for p in ("A", "B") for i in range(20)}
     assert contents == expected
+
+
+def test_append_turn_review_persists_and_lists_conversation_summary(
+    store: ConversationStore,
+) -> None:
+    cid = store.get_or_create(None)
+    user = store.append_user_message(cid, "What are parking rules?")
+    assistant = store.append_assistant_message(cid, "Parking answer", [], "answered")
+
+    review = store.append_turn_review(
+        conversation_id=cid,
+        user_message_id=user.id,
+        assistant_message_id=assistant.id,
+        raw_query="What are parking rules?",
+        normalized_query="what are parking rules",
+        status="answered",
+        refusal_trigger=None,
+        debug_requested=True,
+        debug_authorized=True,
+        llm_prompt_tokens=42,
+        retrieved_chunks=[
+            {
+                "chunk_id": "parking-001",
+                "title": "Parking and Transportation",
+                "section": None,
+                "url": "https://www.cpp.edu/parking/permits/index.shtml",
+                "score": 0.92,
+                "snippet": "Parking permits are required.",
+            }
+        ],
+    )
+
+    assert review.conversation_id == cid
+    assert review.user_message_id == user.id
+    assert review.assistant_message_id == assistant.id
+    assert review.debug_requested is True
+    assert review.llm_prompt_tokens == 42
+
+    summaries = store.list_conversation_summaries(limit=10, offset=0)
+    assert len(summaries) == 1
+    summary = summaries[0]
+    assert summary.conversation_id == cid
+    assert summary.turn_count == 1
+    assert summary.last_status == "answered"
+    assert "parking" in summary.last_user_message_preview.lower()
+
+
+def test_get_conversation_detail_returns_turn_review_metadata(
+    store: ConversationStore,
+) -> None:
+    cid = store.get_or_create(None)
+    user = store.append_user_message(cid, "Tell me about FAFSA")
+    assistant = store.append_assistant_message(
+        cid,
+        "Financial aid answer",
+        [],
+        "answered",
+    )
+    store.append_turn_review(
+        conversation_id=cid,
+        user_message_id=user.id,
+        assistant_message_id=assistant.id,
+        raw_query="Tell me about FAFSA",
+        normalized_query="tell me about fafsa",
+        status="answered",
+        refusal_trigger=None,
+        debug_requested=False,
+        debug_authorized=False,
+        llm_prompt_tokens=11,
+        retrieved_chunks=[
+            {
+                "chunk_id": "aid-001",
+                "title": "Financial Aid and Scholarships",
+                "section": None,
+                "url": "https://www.cpp.edu/financial-aid/index.shtml",
+                "score": 0.95,
+                "snippet": "CPP offers grants and scholarships.",
+            }
+        ],
+    )
+
+    detail = store.get_conversation_detail(cid)
+
+    assert detail is not None
+    assert detail.conversation_id == cid
+    assert len(detail.turns) == 1
+    turn = detail.turns[0]
+    assert turn.user_message.content == "Tell me about FAFSA"
+    assert turn.assistant_message.content == "Financial aid answer"
+    assert turn.review.normalized_query == "tell me about fafsa"
+    assert turn.review.retrieved_chunks[0]["chunk_id"] == "aid-001"

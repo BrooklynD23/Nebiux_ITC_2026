@@ -31,6 +31,11 @@ class Settings(BaseSettings):
     llm_provider: str = Field(default="gemini", alias="LLM_PROVIDER")
     gemini_api_key: str | None = Field(default=None, alias="GEMINI_API_KEY")
     openai_api_key: str | None = Field(default=None, alias="OPENAI_API_KEY")
+    admin_api_token: str | None = Field(
+        default=None,
+        alias="ADMIN_API_TOKEN",
+    )
+    log_level: str = Field(default="INFO", alias="LOG_LEVEL")
 
     host: str = Field(default="0.0.0.0", alias="HOST")
     port: int = Field(default=8000, alias="PORT")
@@ -82,6 +87,17 @@ class Settings(BaseSettings):
         if isinstance(value, str):
             return [item.strip() for item in value.split(",") if item.strip()]
         return value
+
+    @field_validator("log_level", mode="before")
+    @classmethod
+    def _normalize_log_level(cls, value: str | None) -> str:
+        normalized = (value or "INFO").strip().upper()
+        allowed = {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}
+        if normalized not in allowed:
+            raise ValueError(
+                f"LOG_LEVEL must be one of {sorted(allowed)}, got {normalized!r}"
+            )
+        return normalized
 
     @property
     def effective_conversation_db_path(self) -> Path:
