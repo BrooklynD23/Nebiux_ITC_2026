@@ -19,6 +19,11 @@ from src.agent.grounding import (
     build_refusal_response,
 )
 from src.agent.query_normalizer import normalize
+from src.agent.support_routing import (
+    SupportRoute,
+    build_support_response,
+    classify_support_route,
+)
 from src.agent.system_prompt import SYSTEM_PROMPT
 from src.citations import normalize_url
 from src.config import LLMProvider, get_llm_client, get_provider
@@ -44,7 +49,8 @@ _SEARCH_TOOL = {
     "function": {
         "name": "search_corpus",
         "description": (
-            "Search the Cal Poly Pomona knowledge base for relevant " "information."
+            "Search the Cal Poly Pomona knowledge base for relevant "
+            "information."
         ),
         "parameters": {
             "type": "object",
@@ -127,7 +133,7 @@ async def run_tool_loop(
     normalized = normalize(message)
     log_event(
         logger,
-        logging.DEBUG,
+        logging.INFO,
         "chat.request_received",
         conversation_id=cid,
         raw_query=message,
@@ -139,7 +145,28 @@ async def run_tool_loop(
 
     execution = ToolLoopExecution()
     refusal_trigger: str | None = None
-    if normalized.is_ambiguous:
+    route = classify_support_route(message)
+    active_retriever = retriever or _get_default_retriever()
+
+    if route is not None:
+        if active_retriever is None:
+            response = ChatResponse(
+                conversation_id=cid,
+                status=ChatStatus.ERROR,
+                answer_markdown=(
+                    "The retrieval backend is not ready yet. Build the search "
+                    "artifacts and restart the API."
+                ),
+                citations=[],
+            )
+        else:
+            response, execution, refusal_trigger = await _run_support_route(
+                cid,
+                route.retrieval_query,
+                route,
+                active_retriever,
+            )
+    elif normalized.is_ambiguous:
         refusal_trigger = "query.ambiguous"
         response = ChatResponse(
             conversation_id=cid,
@@ -152,7 +179,6 @@ async def run_tool_loop(
             citations=[],
         )
     else:
-        active_retriever = retriever or _get_default_retriever()
         active_runner = llm_runner or _run_llm_loop
 
         if active_retriever is None:
@@ -174,7 +200,7 @@ async def run_tool_loop(
                 )
                 log_event(
                     logger,
-                    logging.DEBUG,
+                    logging.INFO,
                     "chat.retrieval_completed",
                     conversation_id=cid,
                     normalized_query=normalized.normalized_text,
@@ -186,7 +212,9 @@ async def run_tool_loop(
                 response = ChatResponse(
                     conversation_id=cid,
                     status=ChatStatus.ERROR,
-                    answer_markdown=("Sorry, something went wrong. Please try again."),
+                    answer_markdown=(
+                        "Sorry, something went wrong. Please try again."
+                    ),
                     citations=[],
                 )
             else:
@@ -233,9 +261,10 @@ async def run_tool_loop(
                 cid,
             )
         else:
-            if user_message is not None:
+            append_turn_review = getattr(store, "append_turn_review", None)
+            if user_message is not None and callable(append_turn_review):
                 try:
-                    store.append_turn_review(
+                    append_turn_review(
                         conversation_id=cid,
                         user_message_id=user_message.id,
                         assistant_message_id=assistant_message.id,
@@ -269,6 +298,59 @@ async def run_tool_loop(
     return response
 
 
+async def _run_support_route(
+    conversation_id: str,
+    retrieval_query: str,
+    route: SupportRoute,
+    retriever: RetrieverBase,
+) -> tuple[ChatResponse, ToolLoopExecution, str | None]:
+    """Route high-support messages to a deterministic cited CPP service."""
+    results = await retriever.search_corpus(retrieval_query, top_k=3)
+    verdict = assess_confidence(results, get_settings().grounding_config)
+    if not verdict.grounded:
+        execution = ToolLoopExecution(
+            retrieved=list(results),
+            grounding_verdict=verdict,
+            grounding_query=retrieval_query,
+        )
+        log_event(
+            logger,
+            logging.INFO,
+            "chat.retrieval_completed",
+            conversation_id=conversation_id,
+            retrieval_query=retrieval_query,
+            route_id=route.route_id,
+            retrieved_chunks=_serialize_retrieved_chunks(execution.retrieved),
+            llm_prompt_tokens=execution.prompt_tokens,
+        )
+        return (
+            build_refusal_response(
+                conversation_id,
+                verdict,
+                RefusalContext(normalized_query=retrieval_query),
+            ),
+            execution,
+            verdict.reason,
+        )
+
+    execution = ToolLoopExecution(retrieved=list(results))
+    log_event(
+        logger,
+        logging.INFO,
+        "chat.retrieval_completed",
+        conversation_id=conversation_id,
+        retrieval_query=retrieval_query,
+        route_id=route.route_id,
+        retrieved_chunks=_serialize_retrieved_chunks(execution.retrieved),
+        llm_prompt_tokens=execution.prompt_tokens,
+    )
+    return (
+        build_support_response(conversation_id, route, results),
+        execution,
+        None,
+    )
+
+
 async def _run_llm_loop(
     message: str,
     history: list[Message],
@@ -292,7 +374,6 @@ async def _openai_loop(
 ) -> ToolLoopExecution:
     """Run the OpenAI tool-calling loop."""
     all_retrieved: list[SearchResult] = []
-    prompt_tokens = 0
     full_messages = (
         [{"role": "system", "content": SYSTEM_PROMPT}]
         + _history_to_openai(history)
@@ -307,16 +388,13 @@ async def _openai_loop(
             tools=[_SEARCH_TOOL],
             tool_choice="auto",
         )
-        prompt_tokens += (
-            getattr(getattr(response, "usage", None), "prompt_tokens", 0) or 0
-        )
         choice = response.choices[0]
 
         if choice.finish_reason == "stop":
             return ToolLoopExecution(
                 answer_markdown=choice.message.content or "",
                 retrieved=all_retrieved,
-                prompt_tokens=prompt_tokens or None,
+                prompt_tokens=None,
             )
 
         if choice.finish_reason == "tool_calls":
@@ -349,10 +427,7 @@ async def _openai_loop(
 
         break
 
-    return ToolLoopExecution(
-        retrieved=all_retrieved,
-        prompt_tokens=prompt_tokens or None,
-    )
+    return ToolLoopExecution(retrieved=all_retrieved, prompt_tokens=None)
 
 
 async def _gemini_loop(
@@ -365,7 +440,6 @@ async def _gemini_loop(
     from google.genai import types  # type: ignore[import-untyped]
 
     all_retrieved: list[SearchResult] = []
-    prompt_tokens = 0
     grounding_checked = False
     gemini_tool = types.Tool(
         function_declarations=[
@@ -397,10 +471,6 @@ async def _gemini_loop(
             contents=contents,
             config=config,
         )
-        prompt_tokens += (
-            getattr(getattr(response, "usage_metadata", None), "prompt_token_count", 0)
-            or 0
-        )
         candidate = response.candidates[0]
         contents.append(candidate.content)
 
@@ -414,7 +484,7 @@ async def _gemini_loop(
             return ToolLoopExecution(
                 answer_markdown="\n".join(text_parts),
                 retrieved=all_retrieved,
-                prompt_tokens=prompt_tokens or None,
+                prompt_tokens=None,
             )
 
         tool_results = []
@@ -543,7 +613,9 @@ def _history_to_gemini(history: list[Message], types: object) -> list[object]:
     contents = []
     for turn in history:
         role = "model" if turn.role == "assistant" else "user"
-        contents.append(types.Content(role=role, parts=[types.Part(text=turn.content)]))
+        contents.append(
+            types.Content(role=role, parts=[types.Part(text=turn.content)])
+        )
     return contents
 
 
