@@ -19,10 +19,23 @@ from src.agent.grounding import (
     build_refusal_response,
 )
 from src.agent.query_normalizer import normalize
+from src.agent.support_routing import (
+    SupportRoute,
+    build_support_response,
+    classify_support_route,
+)
 from src.agent.system_prompt import SYSTEM_PROMPT
 from src.citations import normalize_url
 from src.config import LLMProvider, get_llm_client, get_provider
-from src.models import ChatResponse, ChatStatus, Citation, SearchResult
+from src.models import (
+    ChatDebugInfo,
+    ChatResponse,
+    ChatStatus,
+    Citation,
+    RetrievedChunkDebug,
+    SearchResult,
+)
+from src.observability import log_event
 from src.retrieval.interface import RetrieverBase
 from src.settings import get_settings
 
@@ -35,7 +48,10 @@ _SEARCH_TOOL = {
     "type": "function",
     "function": {
         "name": "search_corpus",
-        "description": "Search the Cal Poly Pomona knowledge base for relevant information.",
+        "description": (
+            "Search the Cal Poly Pomona knowledge base for relevant "
+            "information."
+        ),
         "parameters": {
             "type": "object",
             "properties": {
@@ -72,6 +88,7 @@ class ToolLoopExecution:
     retrieved: list[SearchResult] = field(default_factory=list)
     grounding_verdict: GroundingVerdict | None = None
     grounding_query: str | None = None
+    prompt_tokens: int | None = None
 
 
 ToolLoopRunner = Callable[
@@ -88,6 +105,8 @@ async def run_tool_loop(
     max_turns: int = 10,
     retriever: RetrieverBase | None = None,
     llm_runner: ToolLoopRunner | None = None,
+    debug_requested: bool = False,
+    debug_authorized: bool = False,
 ) -> ChatResponse:
     """Process a user message through the agent tool loop."""
     if store is not None:
@@ -96,10 +115,11 @@ async def run_tool_loop(
         cid = conversation_id or str(uuid.uuid4())
 
     history: list[Message] = []
+    user_message = None
     if store is not None:
         history = store.get_history(cid, max_turns=max_turns)
         try:
-            store.append_user_message(cid, message)
+            user_message = store.append_user_message(cid, message)
         except Exception:
             logger.exception(
                 "Failed to persist user message for conversation %s",
@@ -111,14 +131,43 @@ async def run_tool_loop(
             ) from None
 
     normalized = normalize(message)
-    logger.debug(
-        "query raw=%r normalized=%r ambiguous=%s",
-        normalized.original,
-        normalized.normalized_text,
-        normalized.is_ambiguous,
+    log_event(
+        logger,
+        logging.INFO,
+        "chat.request_received",
+        conversation_id=cid,
+        raw_query=message,
+        normalized_query=normalized.normalized_text,
+        debug_requested=debug_requested,
+        debug_authorized=debug_authorized,
+        ambiguous=normalized.is_ambiguous,
     )
 
-    if normalized.is_ambiguous:
+    execution = ToolLoopExecution()
+    refusal_trigger: str | None = None
+    route = classify_support_route(message)
+    active_retriever = retriever or _get_default_retriever()
+
+    if route is not None:
+        if active_retriever is None:
+            response = ChatResponse(
+                conversation_id=cid,
+                status=ChatStatus.ERROR,
+                answer_markdown=(
+                    "The retrieval backend is not ready yet. Build the search "
+                    "artifacts and restart the API."
+                ),
+                citations=[],
+            )
+        else:
+            response, execution, refusal_trigger = await _run_support_route(
+                cid,
+                route.retrieval_query,
+                route,
+                active_retriever,
+            )
+    elif normalized.is_ambiguous:
+        refusal_trigger = "query.ambiguous"
         response = ChatResponse(
             conversation_id=cid,
             status=ChatStatus.NOT_FOUND,
@@ -130,7 +179,6 @@ async def run_tool_loop(
             citations=[],
         )
     else:
-        active_retriever = retriever or _get_default_retriever()
         active_runner = llm_runner or _run_llm_loop
 
         if active_retriever is None:
@@ -150,6 +198,15 @@ async def run_tool_loop(
                     history,
                     active_retriever,
                 )
+                log_event(
+                    logger,
+                    logging.INFO,
+                    "chat.retrieval_completed",
+                    conversation_id=cid,
+                    normalized_query=normalized.normalized_text,
+                    retrieved_chunks=_serialize_retrieved_chunks(execution.retrieved),
+                    llm_prompt_tokens=execution.prompt_tokens,
+                )
             except Exception as exc:
                 logger.exception("Tool loop failed: %s", exc)
                 response = ChatResponse(
@@ -161,15 +218,38 @@ async def run_tool_loop(
                     citations=[],
                 )
             else:
-                response = _build_response_from_execution(
+                response, refusal_trigger = _build_response_from_execution(
                     cid,
                     normalized.normalized_text,
                     execution,
                 )
 
+    if refusal_trigger is not None:
+        log_event(
+            logger,
+            logging.INFO,
+            "chat.refusal_triggered",
+            conversation_id=cid,
+            refusal_trigger=refusal_trigger,
+            normalized_query=normalized.normalized_text,
+        )
+
+    if debug_requested and debug_authorized:
+        response.debug_info = ChatDebugInfo(
+            raw_query=message,
+            normalized_query=normalized.normalized_text,
+            retrieved_chunks=[
+                RetrievedChunkDebug.model_validate(chunk)
+                for chunk in _serialize_retrieved_chunks(execution.retrieved)
+            ],
+            refusal_trigger=refusal_trigger,
+            llm_prompt_tokens=execution.prompt_tokens,
+        )
+
+    assistant_message = None
     if store is not None:
         try:
-            store.append_assistant_message(
+            assistant_message = store.append_assistant_message(
                 cid,
                 response.answer_markdown,
                 [citation.model_dump() for citation in response.citations],
@@ -180,8 +260,95 @@ async def run_tool_loop(
                 "Failed to persist assistant message for conversation %s",
                 cid,
             )
+        else:
+            append_turn_review = getattr(store, "append_turn_review", None)
+            if user_message is not None and callable(append_turn_review):
+                try:
+                    append_turn_review(
+                        conversation_id=cid,
+                        user_message_id=user_message.id,
+                        assistant_message_id=assistant_message.id,
+                        raw_query=message,
+                        normalized_query=normalized.normalized_text,
+                        status=response.status.value,
+                        refusal_trigger=refusal_trigger,
+                        debug_requested=debug_requested,
+                        debug_authorized=debug_authorized,
+                        llm_prompt_tokens=execution.prompt_tokens,
+                        retrieved_chunks=_serialize_retrieved_chunks(
+                            execution.retrieved
+                        ),
+                    )
+                except Exception:
+                    logger.exception(
+                        "Failed to persist turn review for conversation %s",
+                        cid,
+                    )
+
+    log_event(
+        logger,
+        logging.INFO,
+        "chat.response_completed",
+        conversation_id=cid,
+        status=response.status.value,
+        citation_count=len(response.citations),
+        debug_info_included=response.debug_info is not None,
+    )
 
     return response
+
+
+async def _run_support_route(
+    conversation_id: str,
+    retrieval_query: str,
+    route: SupportRoute,
+    retriever: RetrieverBase,
+) -> tuple[ChatResponse, ToolLoopExecution, str | None]:
+    """Route high-support messages to a deterministic cited CPP service."""
+    results = await retriever.search_corpus(retrieval_query, top_k=3)
+    verdict = assess_confidence(results, get_settings().grounding_config)
+    if not verdict.grounded:
+        execution = ToolLoopExecution(
+            retrieved=list(results),
+            grounding_verdict=verdict,
+            grounding_query=retrieval_query,
+        )
+        log_event(
+            logger,
+            logging.INFO,
+            "chat.retrieval_completed",
+            conversation_id=conversation_id,
+            retrieval_query=retrieval_query,
+            route_id=route.route_id,
+            retrieved_chunks=_serialize_retrieved_chunks(execution.retrieved),
+            llm_prompt_tokens=execution.prompt_tokens,
+        )
+        return (
+            build_refusal_response(
+                conversation_id,
+                verdict,
+                RefusalContext(normalized_query=retrieval_query),
+            ),
+            execution,
+            verdict.reason,
+        )
+
+    execution = ToolLoopExecution(retrieved=list(results))
+    log_event(
+        logger,
+        logging.INFO,
+        "chat.retrieval_completed",
+        conversation_id=conversation_id,
+        retrieval_query=retrieval_query,
+        route_id=route.route_id,
+        retrieved_chunks=_serialize_retrieved_chunks(execution.retrieved),
+        llm_prompt_tokens=execution.prompt_tokens,
+    )
+    return (
+        build_support_response(conversation_id, route, results),
+        execution,
+        None,
+    )
 
 
 async def _run_llm_loop(
@@ -227,6 +394,7 @@ async def _openai_loop(
             return ToolLoopExecution(
                 answer_markdown=choice.message.content or "",
                 retrieved=all_retrieved,
+                prompt_tokens=None,
             )
 
         if choice.finish_reason == "tool_calls":
@@ -259,7 +427,7 @@ async def _openai_loop(
 
         break
 
-    return ToolLoopExecution(retrieved=all_retrieved)
+    return ToolLoopExecution(retrieved=all_retrieved, prompt_tokens=None)
 
 
 async def _gemini_loop(
@@ -316,6 +484,7 @@ async def _gemini_loop(
             return ToolLoopExecution(
                 answer_markdown="\n".join(text_parts),
                 retrieved=all_retrieved,
+                prompt_tokens=None,
             )
 
         tool_results = []
@@ -350,37 +519,46 @@ def _build_response_from_execution(
     conversation_id: str,
     normalized_query: str,
     execution: ToolLoopExecution,
-) -> ChatResponse:
+) -> tuple[ChatResponse, str | None]:
     if (
         execution.grounding_verdict is not None
         and not execution.grounding_verdict.grounded
     ):
         refusal_query = execution.grounding_query or normalized_query
-        return build_refusal_response(
-            conversation_id,
-            execution.grounding_verdict,
-            RefusalContext(normalized_query=refusal_query),
+        return (
+            build_refusal_response(
+                conversation_id,
+                execution.grounding_verdict,
+                RefusalContext(normalized_query=refusal_query),
+            ),
+            execution.grounding_verdict.reason,
         )
 
     if not execution.answer_markdown:
-        return ChatResponse(
-            conversation_id=conversation_id,
-            status=ChatStatus.NOT_FOUND,
-            answer_markdown=(
-                "I couldn't find information about that in the CPP knowledge base."
+        return (
+            ChatResponse(
+                conversation_id=conversation_id,
+                status=ChatStatus.NOT_FOUND,
+                answer_markdown=(
+                    "I couldn't find information about that in the CPP knowledge base."
+                ),
+                citations=[],
             ),
-            citations=[],
+            "retrieval.no_answer",
         )
 
     answer_body, citations = _extract_answer_and_citations(
         execution.answer_markdown,
         execution.retrieved,
     )
-    return ChatResponse(
-        conversation_id=conversation_id,
-        status=ChatStatus.ANSWERED,
-        answer_markdown=answer_body,
-        citations=citations,
+    return (
+        ChatResponse(
+            conversation_id=conversation_id,
+            status=ChatStatus.ANSWERED,
+            answer_markdown=answer_body,
+            citations=citations,
+        ),
+        None,
     )
 
 
@@ -534,3 +712,19 @@ def _extract_citations_from_text(
             seen_urls.add(result.url)
 
     return citations
+
+
+def _serialize_retrieved_chunks(
+    results: list[SearchResult],
+) -> list[dict[str, object]]:
+    return [
+        {
+            "chunk_id": result.chunk_id,
+            "title": result.title,
+            "section": result.section,
+            "url": result.url,
+            "snippet": result.snippet,
+            "score": result.score,
+        }
+        for result in results
+    ]
