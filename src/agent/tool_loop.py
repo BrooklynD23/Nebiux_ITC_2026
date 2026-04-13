@@ -1,23 +1,56 @@
-"""Stub tool loop for the LLM agent.
-
-In Sprint 2 this will contain the real tool-calling loop that:
-1. Sends user message + conversation history to the LLM
-2. Detects tool_call requests for ``search_corpus``
-3. Executes retrieval, feeds results back to the LLM
-4. Returns the final grounded answer with citations
-
-For Sprint 0-1, this returns a realistic mock response so the API
-contract can be validated end-to-end.
-"""
+"""LLM agent tool loop with hybrid RAG retrieval."""
 
 from __future__ import annotations
 
+import json
+import logging
 import uuid
 from typing import TYPE_CHECKING
 
 from fastapi import HTTPException
 
-from src.models import ChatResponse, ChatStatus, Citation
+from src.agent.prompts import SYSTEM_PROMPT
+from src.agent.query_normalizer import normalize
+from src.config import LLMProvider, get_llm_client, get_provider
+from src.models import ChatResponse, ChatStatus, Citation, SearchResult
+from src.retrieval.hybrid_retriever import HybridRetriever
+
+if TYPE_CHECKING:
+    from src.conversation import ConversationStore, Message
+
+logger = logging.getLogger(__name__)
+
+_SEARCH_TOOL = {
+    "type": "function",
+    "function": {
+        "name": "search_corpus",
+        "description": "Search the Cal Poly Pomona knowledge base for relevant information.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "A concise natural-language search query.",
+                },
+                "top_k": {
+                    "type": "integer",
+                    "description": "Number of results to return (default 5).",
+                    "default": 5,
+                },
+            },
+            "required": ["query"],
+        },
+    },
+}
+
+_retriever: HybridRetriever | None = None
+
+
+def _get_retriever() -> HybridRetriever:
+    global _retriever
+    if _retriever is None:
+        _retriever = HybridRetriever()
+    return _retriever
 
 
 async def run_tool_loop(
@@ -29,77 +62,108 @@ async def run_tool_loop(
 ) -> ChatResponse:
     """Process a user message through the agent tool loop.
 
-    Parameters
-    ----------
-    message:
-        The user's natural-language question.
-    conversation_id:
-        Existing conversation UUID, or None to start fresh.
-
-    Returns
-    -------
-    ChatResponse
-        A mock response conforming to the POST /chat contract.
+    When ``store`` is provided, the prior history is loaded, the new
+    user turn is persisted before generation, and the assistant turn is
+    persisted afterwards.  When ``store`` is ``None`` the function
+    still returns a valid response (used by legacy contract tests).
     """
-    cid = conversation_id or str(uuid.uuid4())
+    if store is not None:
+        cid = store.get_or_create(conversation_id)
+    else:
+        cid = conversation_id or str(uuid.uuid4())
 
-    # Simple keyword-based stub routing for realistic mock behavior
-    lower = message.lower()
+    history: "list[Message]" = []
+    if store is not None:
+        history = store.get_history(cid, max_turns=max_turns)
+        try:
+            store.append_user_message(cid, message)
+        except Exception:
+            logger.exception(
+                "Failed to persist user message for conversation %s", cid
+            )
+            raise HTTPException(
+                status_code=500,
+                detail="Conversation store unavailable",
+            ) from None
 
-    if any(kw in lower for kw in ("parking", "permit", "transportation")):
-        return ChatResponse(
+    normalized = normalize(message)
+    logger.debug(
+        "query raw=%r normalized=%r ambiguous=%s",
+        normalized.original,
+        normalized.normalized_text,
+        normalized.is_ambiguous,
+    )
+
+    if normalized.is_ambiguous:
+        response = ChatResponse(
             conversation_id=cid,
-            status=ChatStatus.ANSWERED,
+            status=ChatStatus.NOT_FOUND,
             answer_markdown=(
-                "Parking permits are required on campus Monday through "
-                "Thursday. You can purchase semester or daily permits online "
-                "through the [CPP parking portal]"
-                "(https://www.cpp.edu/parking/permits/index.shtml)."
+                "Your question is a bit short — could you give me more detail? "
+                "For example: *\"What are the FAFSA deadlines at CPP?\"* or "
+                "*\"Where is the financial aid office?\"*"
             ),
-            citations=[
-                Citation(
-                    title="Parking and Transportation",
-                    url="https://www.cpp.edu/parking/permits/index.shtml",
-                    snippet=(
-                        "Parking permits are required on campus Monday through "
-                        "Thursday. Students can purchase semester or daily "
-                        "permits online through the CPP parking portal."
-                    ),
-                ),
-            ],
+            citations=[],
+        )
+    else:
+        response = await _run_llm_loop(normalized.normalized_text, cid, history)
+
+    if store is not None:
+        try:
+            store.append_assistant_message(
+                cid,
+                response.answer_markdown,
+                [c.model_dump() for c in response.citations],
+                response.status.value,
+            )
+        except Exception:
+            logger.exception(
+                "Failed to persist assistant message for conversation %s", cid
+            )
+
+    return response
+
+
+async def _run_llm_loop(
+    message: str,
+    conversation_id: str,
+    history: "list[Message]",
+) -> ChatResponse:
+    """Run the real LLM tool-calling loop with hybrid retrieval."""
+    provider = get_provider()
+    client = get_llm_client()
+    retriever = _get_retriever()
+
+    messages: list[dict] = [{"role": "user", "content": message}]
+    retrieved: list[SearchResult] = []
+
+    try:
+        if provider is LLMProvider.OPENAI:
+            answer, retrieved = await _openai_loop(client, messages, retriever, history)
+        else:
+            answer, retrieved = await _gemini_loop(client, messages, retriever, history)
+    except Exception as exc:
+        logger.exception("Tool loop failed: %s", exc)
+        return ChatResponse(
+            conversation_id=conversation_id,
+            status=ChatStatus.ERROR,
+            answer_markdown="Sorry, something went wrong. Please try again.",
+            citations=[],
         )
 
     if not answer:
         return ChatResponse(
-            conversation_id=cid,
-            status=ChatStatus.ANSWERED,
-            answer_markdown=(
-                "Cal Poly Pomona accepts **fall admission** applications from "
-                "**October 1 through December 15**. You must meet CSU "
-                "eligibility requirements, including completion of the A-G "
-                "course pattern.\n\n"
-                "For full details, visit the "
-                "[Freshmen Admissions](https://www.cpp.edu/admissions/"
-                "freshmen/index.shtml) page."
-            ),
-            citations=[
-                Citation(
-                    title="Freshmen Admissions Requirements",
-                    url="https://www.cpp.edu/admissions/freshmen/index.shtml",
-                    snippet=(
-                        "Cal Poly Pomona accepts applications for fall admission "
-                        "from October 1 through December 15."
-                    ),
-                ),
-            ],
+            conversation_id=conversation_id,
+            status=ChatStatus.NOT_FOUND,
+            answer_markdown="I couldn't find information about that in the CPP knowledge base.",
+            citations=[],
         )
 
-    # Default: a generic answered response
     return ChatResponse(
         conversation_id=conversation_id,
         status=ChatStatus.ANSWERED,
         answer_markdown=answer,
-        citations=citations,
+        citations=_extract_citations(answer, retrieved),
     )
 
 
@@ -107,12 +171,16 @@ async def _openai_loop(
     client,
     messages: list[dict],
     retriever: HybridRetriever,
+    history: "list[Message]",
 ) -> tuple[str, list[SearchResult]]:
     """Run the OpenAI tool-calling loop."""
-    from openai import OpenAI
-
     all_retrieved: list[SearchResult] = []
-    full_messages = [{"role": "system", "content": SYSTEM_PROMPT}] + messages
+
+    full_messages = (
+        [{"role": "system", "content": SYSTEM_PROMPT}]
+        + _history_to_openai(history)
+        + messages
+    )
 
     while True:
         response = client.chat.completions.create(
@@ -124,11 +192,9 @@ async def _openai_loop(
 
         choice = response.choices[0]
 
-        # LLM is done — return its final answer
         if choice.finish_reason == "stop":
             return choice.message.content or "", all_retrieved
 
-        # LLM wants to call search_corpus
         if choice.finish_reason == "tool_calls":
             full_messages.append(choice.message)
 
@@ -141,16 +207,14 @@ async def _openai_loop(
                 results = await retriever.search_corpus(query, top_k=top_k)
                 all_retrieved.extend(results)
 
-                tool_result = _format_results_for_llm(results)
                 full_messages.append({
                     "role": "tool",
                     "tool_call_id": tool_call.id,
-                    "content": tool_result,
+                    "content": _format_results_for_llm(results),
                 })
 
             continue
 
-        # Unexpected finish reason
         break
 
     return "", all_retrieved
@@ -160,6 +224,7 @@ async def _gemini_loop(
     client,
     messages: list[dict],
     retriever: HybridRetriever,
+    history: "list[Message]",
 ) -> tuple[str, list[SearchResult]]:
     """Run the Gemini tool-calling loop."""
     from google.genai import types  # type: ignore[import-untyped]
@@ -183,7 +248,9 @@ async def _gemini_loop(
         ]
     )
 
-    contents = [types.Content(role="user", parts=[types.Part(text=messages[-1]["content"])])]
+    contents = _history_to_gemini(history, types) + [
+        types.Content(role="user", parts=[types.Part(text=messages[-1]["content"])])
+    ]
     config = types.GenerateContentConfig(
         system_instruction=SYSTEM_PROMPT,
         tools=[gemini_tool],
@@ -199,15 +266,15 @@ async def _gemini_loop(
         candidate = response.candidates[0]
         contents.append(candidate.content)
 
-        # Check if any part is a function call
         tool_calls = [p for p in candidate.content.parts if p.function_call]
 
         if not tool_calls:
-            # No tool calls — final answer
-            text_parts = [p.text for p in candidate.content.parts if hasattr(p, "text") and p.text]
+            text_parts = [
+                p.text for p in candidate.content.parts
+                if hasattr(p, "text") and p.text
+            ]
             return "\n".join(text_parts), all_retrieved
 
-        # Execute each tool call and append results
         tool_results = []
         for part in tool_calls:
             fc = part.function_call
@@ -232,21 +299,36 @@ async def _gemini_loop(
     return "", all_retrieved
 
 
+def _history_to_openai(history: "list[Message]") -> list[dict]:
+    messages = []
+    for turn in history:
+        messages.append({"role": "user", "content": turn.user_text})
+        messages.append({"role": "assistant", "content": turn.assistant_text})
+    return messages
+
+
+def _history_to_gemini(history: "list[Message]", types) -> list:
+    contents = []
+    for turn in history:
+        contents.append(
+            types.Content(role="user", parts=[types.Part(text=turn.user_text)])
+        )
+        contents.append(
+            types.Content(role="model", parts=[types.Part(text=turn.assistant_text)])
+        )
+    return contents
+
+
 def _format_results_for_llm(results: list[SearchResult]) -> str:
-    """Format retrieved chunks as a readable string for the LLM context."""
     if not results:
         return "No results found."
-
     parts = []
     for i, r in enumerate(results, 1):
-        parts.append(
-            f"[{i}] {r.title}\nURL: {r.url}\n{r.snippet}"
-        )
+        parts.append(f"[{i}] {r.title}\nURL: {r.url}\n{r.snippet}")
     return "\n\n".join(parts)
 
 
 def _extract_citations(answer: str, retrieved: list[SearchResult]) -> list[Citation]:
-    """Return citations for sources the LLM actually referenced in its answer."""
     if not retrieved:
         return []
 
@@ -256,7 +338,6 @@ def _extract_citations(answer: str, retrieved: list[SearchResult]) -> list[Citat
     for result in retrieved:
         if result.url in seen_urls:
             continue
-        # Include citation if the URL or title appears in the answer
         if result.url in answer or result.title in answer:
             citations.append(
                 Citation(
