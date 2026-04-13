@@ -241,3 +241,105 @@ def test_run_case_matches_expected_source_fragment_in_title() -> None:
 
     assert result.passed is True
     assert result.failed_checks == []
+
+
+def test_run_case_fails_when_multi_turn_missing_conversation_id() -> None:
+    module = _load_eval_module()
+    case = module.EvalCase(
+        id="followup-missing-cid",
+        category="follow-up",
+        turns=["Tell me about tuition.", "What about payment plans?"],
+        expected_status="answered",
+        expected_answer_contains=["tuition"],
+        expected_sources_contain=[],
+        notes="API omits conversation_id on first turn; should record a failed check.",
+    )
+    client = _FakeClient(
+        [
+            _FakeResponse(
+                {
+                    "status": "answered",
+                    "answer_markdown": "Tuition information is available online.",
+                    "citations": [
+                        {
+                            "title": "Student Accounts",
+                            "url": "https://www.cpp.edu/student-accounts/index.shtml",
+                            "snippet": "Pay your tuition online.",
+                        }
+                    ],
+                }
+            ),
+            _FakeResponse(
+                {
+                    "status": "answered",
+                    "answer_markdown": (
+                        "Payment plans can be set up via the student portal."
+                    ),
+                    "citations": [
+                        {
+                            "title": "Student Accounts",
+                            "url": "https://www.cpp.edu/student-accounts/index.shtml",
+                            "snippet": "Payment plan options.",
+                        }
+                    ],
+                }
+            ),
+        ]
+    )
+
+    result = module.run_case(case, "http://localhost:8000", client=client)
+
+    assert result.passed is False
+    assert "missing_conversation_id" in result.failed_checks
+
+
+def test_run_case_fails_when_conversation_id_changes_across_turns() -> None:
+    module = _load_eval_module()
+    case = module.EvalCase(
+        id="followup-unstable-cid",
+        category="follow-up",
+        turns=["Tell me about housing.", "What are the room options?"],
+        expected_status="answered",
+        expected_answer_contains=["housing"],
+        expected_sources_contain=[],
+        notes="API returns different conversation_id on second turn; should fail.",
+    )
+    client = _FakeClient(
+        [
+            _FakeResponse(
+                {
+                    "conversation_id": "cid-aaa",
+                    "status": "answered",
+                    "answer_markdown": "On-campus housing is available.",
+                    "citations": [
+                        {
+                            "title": "Housing and Residential Life",
+                            "url": "https://www.cpp.edu/housing/index.shtml",
+                            "snippet": "Apply for on-campus housing.",
+                        }
+                    ],
+                }
+            ),
+            _FakeResponse(
+                {
+                    "conversation_id": "cid-bbb",
+                    "status": "answered",
+                    "answer_markdown": (
+                        "There are several room types including singles and doubles."
+                    ),
+                    "citations": [
+                        {
+                            "title": "Housing and Residential Life",
+                            "url": "https://www.cpp.edu/housing/index.shtml",
+                            "snippet": "Room options vary by hall.",
+                        }
+                    ],
+                }
+            ),
+        ]
+    )
+
+    result = module.run_case(case, "http://localhost:8000", client=client)
+
+    assert result.passed is False
+    assert "unstable_conversation_id" in result.failed_checks

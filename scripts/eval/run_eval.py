@@ -164,9 +164,11 @@ def run_case(
     http_client = client or httpx.Client()
     conversation_id: str | None = None
     final_payload: dict[str, Any] | None = None
+    is_multi_turn = len(case.turns) > 1
+    extra_failed_checks: list[str] = []
 
     try:
-        for turn in case.turns:
+        for turn_idx, turn in enumerate(case.turns):
             payload: dict[str, Any] = {"message": turn}
             if conversation_id is not None:
                 payload["conversation_id"] = conversation_id
@@ -179,7 +181,20 @@ def run_case(
             response.raise_for_status()
 
             final_payload = response.json()
-            conversation_id = final_payload.get("conversation_id")
+            returned_id = final_payload.get("conversation_id")
+
+            if is_multi_turn:
+                if turn_idx == 0 and not returned_id:
+                    extra_failed_checks.append("missing_conversation_id")
+                elif (
+                    turn_idx > 0
+                    and conversation_id is not None
+                    and returned_id != conversation_id
+                    and "unstable_conversation_id" not in extra_failed_checks
+                ):
+                    extra_failed_checks.append("unstable_conversation_id")
+
+            conversation_id = returned_id
 
         if final_payload is None:
             return EvalResult(
@@ -191,7 +206,16 @@ def run_case(
                 error="No response payload received from the API",
             )
 
-        return _evaluate_response(case, final_payload)
+        result = _evaluate_response(case, final_payload)
+        if extra_failed_checks:
+            return EvalResult(
+                case_id=case.id,
+                passed=False,
+                expected_status=result.expected_status,
+                actual_status=result.actual_status,
+                failed_checks=result.failed_checks + extra_failed_checks,
+            )
+        return result
     except Exception as exc:
         return EvalResult(
             case_id=case.id,
