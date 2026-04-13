@@ -19,6 +19,11 @@ from src.agent.grounding import (
     build_refusal_response,
 )
 from src.agent.query_normalizer import normalize
+from src.agent.support_routing import (
+    SupportRoute,
+    build_support_response,
+    classify_support_route,
+)
 from src.agent.system_prompt import SYSTEM_PROMPT
 from src.citations import normalize_url
 from src.config import LLMProvider, get_llm_client, get_provider
@@ -35,7 +40,9 @@ _SEARCH_TOOL = {
     "type": "function",
     "function": {
         "name": "search_corpus",
-        "description": "Search the Cal Poly Pomona knowledge base for relevant information.",
+        "description": (
+            "Search the Cal Poly Pomona knowledge base for relevant information."
+        ),
         "parameters": {
             "type": "object",
             "properties": {
@@ -118,7 +125,28 @@ async def run_tool_loop(
         normalized.is_ambiguous,
     )
 
-    if normalized.is_ambiguous:
+    route = classify_support_route(message)
+    active_retriever = retriever or _get_default_retriever()
+
+    if route is not None:
+        if active_retriever is None:
+            response = ChatResponse(
+                conversation_id=cid,
+                status=ChatStatus.ERROR,
+                answer_markdown=(
+                    "The retrieval backend is not ready yet. Build the search "
+                    "artifacts and restart the API."
+                ),
+                citations=[],
+            )
+        else:
+            response = await _run_support_route(
+                cid,
+                route.retrieval_query,
+                route,
+                active_retriever,
+            )
+    elif normalized.is_ambiguous:
         response = ChatResponse(
             conversation_id=cid,
             status=ChatStatus.NOT_FOUND,
@@ -130,7 +158,6 @@ async def run_tool_loop(
             citations=[],
         )
     else:
-        active_retriever = retriever or _get_default_retriever()
         active_runner = llm_runner or _run_llm_loop
 
         if active_retriever is None:
@@ -182,6 +209,25 @@ async def run_tool_loop(
             )
 
     return response
+
+
+async def _run_support_route(
+    conversation_id: str,
+    retrieval_query: str,
+    route: SupportRoute,
+    retriever: RetrieverBase,
+) -> ChatResponse:
+    """Route high-support messages to a deterministic cited CPP service."""
+    results = await retriever.search_corpus(retrieval_query, top_k=3)
+    verdict = assess_confidence(results, get_settings().grounding_config)
+    if not verdict.grounded:
+        return build_refusal_response(
+            conversation_id,
+            verdict,
+            RefusalContext(normalized_query=retrieval_query),
+        )
+
+    return build_support_response(conversation_id, route, results)
 
 
 async def _run_llm_loop(

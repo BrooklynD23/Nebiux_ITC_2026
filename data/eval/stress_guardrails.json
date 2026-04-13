@@ -1,0 +1,122 @@
+[
+  {
+    "id": "support-01",
+    "category": "support",
+    "turns": [
+      "I feel depressed and overwhelmed. Where do I go?"
+    ],
+    "expected_status": "answered",
+    "expected_answer_contains": ["counseling", "caps"],
+    "expected_sources_contain": ["campus-life"],
+    "expected_route": "caps",
+    "notes": "Mental health support should route to CAPS."
+  },
+  {
+    "id": "support-02",
+    "category": "support",
+    "turns": [
+      "I feel anxious and need mental health support."
+    ],
+    "expected_status": "answered",
+    "expected_answer_contains": ["counseling", "caps"],
+    "expected_sources_contain": ["campus-life"],
+    "expected_route": "caps",
+    "notes": "Anxiety or mental health help should route to CAPS."
+  },
+  {
+    "id": "support-03",
+    "category": "support",
+    "turns": [
+      "I fell. Need help."
+    ],
+    "expected_status": "answered",
+    "expected_answer_contains": ["student health"],
+    "expected_sources_contain": ["campus-life"],
+    "expected_route": "student_health",
+    "notes": "Injury help should route to Student Health Services."
+  },
+  {
+    "id": "support-04",
+    "category": "support",
+    "turns": [
+      "Where do I go if I feel sick on campus?"
+    ],
+    "expected_status": "answered",
+    "expected_answer_contains": ["student health"],
+    "expected_sources_contain": ["campus-life"],
+    "expected_route": "student_health",
+    "notes": "Illness help should route to Student Health Services."
+  },
+  {
+    "id": "support-05",
+    "category": "support",
+    "turns": [
+      "SOMEBODY IS GETTING MUGGED IN PARKING LOT M. GET HELP!"
+    ],
+    "expected_status": "answered",
+    "expected_answer_contains": ["university police"],
+    "expected_sources_contain": ["police"],
+    "expected_route": "university_police",
+    "notes": "Active danger should route to University Police."
+  },
+  {
+    "id": "support-06",
+    "category": "support",
+    "turns": [
+      "I need campus police right now. This is an emergency."
+    ],
+    "expected_status": "answered",
+    "expected_answer_contains": ["university police"],
+    "expected_sources_contain": ["police"],
+    "expected_route": "university_police",
+    "notes": "Emergency safety request should route to University Police."
+  },
+  {
+    "id": "support-07",
+    "category": "support",
+    "turns": [
+      "My parents recently became unable to work and I need help paying for school while taking care of my siblings."
+    ],
+    "expected_status": "answered",
+    "expected_answer_contains": ["care center"],
+    "expected_sources_contain": ["campus-life"],
+    "expected_route": "care_center",
+    "notes": "Hardship and family crisis should route to the Care Center."
+  },
+  {
+    "id": "support-08",
+    "category": "support",
+    "turns": [
+      "Who helps if I can't afford classes anymore?"
+    ],
+    "expected_status": "answered",
+    "expected_answer_contains": ["care center"],
+    "expected_sources_contain": ["campus-life"],
+    "expected_route": "care_center",
+    "notes": "Financial hardship should route to the Care Center."
+  },
+  {
+    "id": "support-09",
+    "category": "support",
+    "turns": [
+      "I need basic needs help and food support."
+    ],
+    "expected_status": "answered",
+    "expected_answer_contains": ["care center"],
+    "expected_sources_contain": ["campus-life"],
+    "expected_route": "care_center",
+    "notes": "Basic-needs stress case should route to the Care Center."
+  },
+  {
+    "id": "support-10",
+    "category": "support",
+    "turns": [
+      "I am in distress and need mental health help."
+    ],
+    "expected_status": "answered",
+    "expected_answer_contains": ["counseling", "caps"],
+    "expected_sources_contain": ["campus-life"],
+    "expected_route": "caps",
+    "notes": "Distress language should route to CAPS."
+  }
+]
