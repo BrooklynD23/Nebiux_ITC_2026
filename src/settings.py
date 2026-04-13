@@ -8,6 +8,8 @@ from pathlib import Path
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from src.agent.grounding import GroundingConfig, ScoreAggregation
+
 _DEFAULT_CORS_ORIGINS = [
     "http://localhost:5173",
     "http://127.0.0.1:5173",
@@ -23,6 +25,7 @@ class Settings(BaseSettings):
         env_file=".env",
         env_file_encoding="utf-8",
         extra="ignore",
+        enable_decoding=False,
     )
 
     llm_provider: str = Field(default="gemini", alias="LLM_PROVIDER")
@@ -53,6 +56,22 @@ class Settings(BaseSettings):
     conversation_history_max_turns: int = Field(
         default=10,
         alias="CONVERSATION_HISTORY_MAX_TURNS",
+    )
+    grounding_min_top_score: float = Field(
+        default=0.3,
+        alias="GROUNDING_MIN_TOP_SCORE",
+    )
+    grounding_min_results: int = Field(
+        default=1,
+        alias="GROUNDING_MIN_RESULTS",
+    )
+    grounding_score_aggregation: ScoreAggregation = Field(
+        default="max",
+        alias="GROUNDING_SCORE_AGGREGATION",
+    )
+    grounding_expected_top_k: int = Field(
+        default=5,
+        alias="GROUNDING_EXPECTED_TOP_K",
     )
 
     @field_validator("cors_origins", mode="before")
@@ -95,6 +114,15 @@ class Settings(BaseSettings):
     @property
     def index_manifest_path(self) -> Path:
         return self.index_dir / "manifest.json"
+
+    @property
+    def grounding_config(self) -> GroundingConfig:
+        return GroundingConfig(
+            min_top_score=self.grounding_min_top_score,
+            min_results=self.grounding_min_results,
+            score_aggregation=self.grounding_score_aggregation,
+            expected_top_k=self.grounding_expected_top_k,
+        )
 
 
 @lru_cache(maxsize=1)

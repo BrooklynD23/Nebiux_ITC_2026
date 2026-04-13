@@ -26,3 +26,19 @@ def test_settings_default_artifact_paths() -> None:
     assert settings.metadata_path == Path("data/metadata.json")
     assert settings.chunk_manifest_path == Path("data/chunks.jsonl")
     assert settings.whoosh_dir == Path("data/indexes/whoosh")
+
+
+def test_settings_builds_grounding_config() -> None:
+    settings = Settings(
+        _env_file=None,
+        GROUNDING_MIN_TOP_SCORE=0.4,
+        GROUNDING_MIN_RESULTS=2,
+        GROUNDING_SCORE_AGGREGATION="mean_top3",
+        GROUNDING_EXPECTED_TOP_K=7,
+    )
+
+    config = settings.grounding_config
+    assert config.min_top_score == 0.4
+    assert config.min_results == 2
+    assert config.score_aggregation == "mean_top3"
+    assert config.expected_top_k == 7
