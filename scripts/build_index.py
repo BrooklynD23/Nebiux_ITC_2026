@@ -22,8 +22,14 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+import chromadb
+from sentence_transformers import SentenceTransformer
 from whoosh import index
 from whoosh.fields import ID, STORED, TEXT, Schema
+
+EMBEDDING_MODEL = "all-MiniLM-L6-v2"
+CHROMA_COLLECTION = "cpp_corpus"
+CHROMA_BATCH_SIZE = 256
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(_PROJECT_ROOT) not in sys.path:
@@ -235,6 +241,44 @@ def build_whoosh_index(chunks: list[ChunkRecord], output_dir: Path) -> None:
     writer.commit()
 
 
+def build_chroma_index(chunks: list[ChunkRecord], chroma_dir: Path) -> None:
+    """Embed chunks with sentence-transformers and persist into Chroma."""
+    chroma_dir.mkdir(parents=True, exist_ok=True)
+
+    logger.info("Loading embedding model '%s'...", EMBEDDING_MODEL)
+    model = SentenceTransformer(EMBEDDING_MODEL)
+
+    client = chromadb.PersistentClient(path=str(chroma_dir))
+
+    # Wipe and recreate so re-runs are idempotent
+    try:
+        client.delete_collection(CHROMA_COLLECTION)
+    except Exception:
+        pass
+    collection = client.create_collection(
+        CHROMA_COLLECTION,
+        metadata={"hnsw:space": "cosine"},
+    )
+
+    ids = [c.chunk_id for c in chunks]
+    documents = [c.content for c in chunks]
+    metadatas = [
+        {"title": c.title, "url": c.url, "snippet": c.snippet}
+        for c in chunks
+    ]
+
+    logger.info("Embedding %d chunks in batches of %d...", len(chunks), CHROMA_BATCH_SIZE)
+    for start in range(0, len(chunks), CHROMA_BATCH_SIZE):
+        batch_ids = ids[start : start + CHROMA_BATCH_SIZE]
+        batch_docs = documents[start : start + CHROMA_BATCH_SIZE]
+        batch_meta = metadatas[start : start + CHROMA_BATCH_SIZE]
+        embeddings = model.encode(batch_docs, show_progress_bar=False).tolist()
+        collection.add(ids=batch_ids, documents=batch_docs, embeddings=embeddings, metadatas=batch_meta)
+        logger.info("  Embedded %d / %d", min(start + CHROMA_BATCH_SIZE, len(chunks)), len(chunks))
+
+    logger.info("Chroma index written to %s", chroma_dir)
+
+
 def write_manifest(
     *,
     chunk_count: int,
@@ -306,9 +350,12 @@ def main() -> int:
     chunk_manifest_path = args.output_dir / "chunks.jsonl"
     whoosh_dir = args.output_dir / "indexes" / "whoosh"
 
+    chroma_dir = args.output_dir / "indexes" / "chroma"
+
     chunks = build_chunk_manifest(args.cleaned_dir, args.metadata_path)
     write_chunk_manifest(chunks, chunk_manifest_path)
     build_whoosh_index(chunks, whoosh_dir)
+    build_chroma_index(chunks, chroma_dir)
     write_manifest(
         chunk_count=len(chunks),
         output_dir=args.output_dir,
@@ -318,6 +365,7 @@ def main() -> int:
 
     logger.info("Built %d chunks into %s", len(chunks), chunk_manifest_path)
     logger.info("Built BM25 index in %s", whoosh_dir)
+    logger.info("Built semantic index in %s", chroma_dir)
     return 0
 
 
