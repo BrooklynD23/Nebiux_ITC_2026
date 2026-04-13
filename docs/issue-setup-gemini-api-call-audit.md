@@ -24,7 +24,7 @@ The Gemini API **skeleton is partially established** on main:
 2. **LLM client factory**
    - `src/config.py` defines:
      - `LLMProvider` enum (`gemini`, `openai`)
-     - `get_llm_client()` which constructs `google.genai.Client` when provider is Gemini
+     - `get_llm_client()` which constructs `genai.Client(...)` when provider is Gemini
      - key validation with clear missing-env errors
 
 3. **Team-facing env/docs contract**
