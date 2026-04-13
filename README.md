@@ -31,6 +31,7 @@ Precomputed retrieval artifacts in data/
 
 - **Frontend**: keep `React + Vite` for V0.1. Do not migrate to Next.js during the competition build unless the team later needs SSR or multi-route product pages.
 - **Backend**: `Python 3.11 + FastAPI`.
+- **Backend routing**: deterministic pre-LLM support routing sends urgent CAPS, Student Health Services, University Police, and Care Center requests to cited CPP resources before the normal LLM path.
 - **Dev environment**: multi-container Docker Compose, not a single container. Python and Node have different toolchains and should stay isolated.
 - **RAG storage**: no local relational DB is required for the MVP. Use file-based artifacts plus persisted index directories.
 - **Runtime indexing**: preprocessing and index build are **offline / one-time startup** tasks, never per request.
@@ -183,6 +184,7 @@ The repo now includes:
 - offline preprocessing and index build
 - Whoosh + Chroma retrieval artifacts
 - provider-backed `search_corpus` tool calling
+- deterministic support routing for urgent student needs
 - SQLite-backed conversation persistence
 - SQLite-backed admin review metadata keyed by `conversation_id`
 - token-protected admin review endpoints

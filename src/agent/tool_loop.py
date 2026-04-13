@@ -49,8 +49,7 @@ _SEARCH_TOOL = {
     "function": {
         "name": "search_corpus",
         "description": (
-            "Search the Cal Poly Pomona knowledge base for relevant "
-            "information."
+            "Search the Cal Poly Pomona knowledge base for relevant information."
         ),
         "parameters": {
             "type": "object",
@@ -332,7 +331,6 @@ async def _run_support_route(
             execution,
             verdict.reason,
         )
-
     execution = ToolLoopExecution(retrieved=list(results))
     log_event(
         logger,
