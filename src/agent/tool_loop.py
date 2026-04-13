@@ -22,7 +22,15 @@ from src.agent.query_normalizer import normalize
 from src.agent.system_prompt import SYSTEM_PROMPT
 from src.citations import normalize_url
 from src.config import LLMProvider, get_llm_client, get_provider
-from src.models import ChatResponse, ChatStatus, Citation, SearchResult
+from src.models import (
+    ChatDebugInfo,
+    ChatResponse,
+    ChatStatus,
+    Citation,
+    RetrievedChunkDebug,
+    SearchResult,
+)
+from src.observability import log_event
 from src.retrieval.interface import RetrieverBase
 from src.settings import get_settings
 
@@ -35,7 +43,9 @@ _SEARCH_TOOL = {
     "type": "function",
     "function": {
         "name": "search_corpus",
-        "description": "Search the Cal Poly Pomona knowledge base for relevant information.",
+        "description": (
+            "Search the Cal Poly Pomona knowledge base for relevant " "information."
+        ),
         "parameters": {
             "type": "object",
             "properties": {
@@ -72,6 +82,7 @@ class ToolLoopExecution:
     retrieved: list[SearchResult] = field(default_factory=list)
     grounding_verdict: GroundingVerdict | None = None
     grounding_query: str | None = None
+    prompt_tokens: int | None = None
 
 
 ToolLoopRunner = Callable[
@@ -88,6 +99,8 @@ async def run_tool_loop(
     max_turns: int = 10,
     retriever: RetrieverBase | None = None,
     llm_runner: ToolLoopRunner | None = None,
+    debug_requested: bool = False,
+    debug_authorized: bool = False,
 ) -> ChatResponse:
     """Process a user message through the agent tool loop."""
     if store is not None:
@@ -96,10 +109,11 @@ async def run_tool_loop(
         cid = conversation_id or str(uuid.uuid4())
 
     history: list[Message] = []
+    user_message = None
     if store is not None:
         history = store.get_history(cid, max_turns=max_turns)
         try:
-            store.append_user_message(cid, message)
+            user_message = store.append_user_message(cid, message)
         except Exception:
             logger.exception(
                 "Failed to persist user message for conversation %s",
@@ -111,14 +125,22 @@ async def run_tool_loop(
             ) from None
 
     normalized = normalize(message)
-    logger.debug(
-        "query raw=%r normalized=%r ambiguous=%s",
-        normalized.original,
-        normalized.normalized_text,
-        normalized.is_ambiguous,
+    log_event(
+        logger,
+        logging.INFO,
+        "chat.request_received",
+        conversation_id=cid,
+        raw_query=message,
+        normalized_query=normalized.normalized_text,
+        debug_requested=debug_requested,
+        debug_authorized=debug_authorized,
+        ambiguous=normalized.is_ambiguous,
     )
 
+    execution = ToolLoopExecution()
+    refusal_trigger: str | None = None
     if normalized.is_ambiguous:
+        refusal_trigger = "query.ambiguous"
         response = ChatResponse(
             conversation_id=cid,
             status=ChatStatus.NOT_FOUND,
@@ -150,26 +172,56 @@ async def run_tool_loop(
                     history,
                     active_retriever,
                 )
+                log_event(
+                    logger,
+                    logging.INFO,
+                    "chat.retrieval_completed",
+                    conversation_id=cid,
+                    normalized_query=normalized.normalized_text,
+                    retrieved_chunks=_serialize_retrieved_chunks(execution.retrieved),
+                    llm_prompt_tokens=execution.prompt_tokens,
+                )
             except Exception as exc:
                 logger.exception("Tool loop failed: %s", exc)
                 response = ChatResponse(
                     conversation_id=cid,
                     status=ChatStatus.ERROR,
-                    answer_markdown=(
-                        "Sorry, something went wrong. Please try again."
-                    ),
+                    answer_markdown=("Sorry, something went wrong. Please try again."),
                     citations=[],
                 )
             else:
-                response = _build_response_from_execution(
+                response, refusal_trigger = _build_response_from_execution(
                     cid,
                     normalized.normalized_text,
                     execution,
                 )
 
+    if refusal_trigger is not None:
+        log_event(
+            logger,
+            logging.INFO,
+            "chat.refusal_triggered",
+            conversation_id=cid,
+            refusal_trigger=refusal_trigger,
+            normalized_query=normalized.normalized_text,
+        )
+
+    if debug_requested and debug_authorized:
+        response.debug_info = ChatDebugInfo(
+            raw_query=message,
+            normalized_query=normalized.normalized_text,
+            retrieved_chunks=[
+                RetrievedChunkDebug.model_validate(chunk)
+                for chunk in _serialize_retrieved_chunks(execution.retrieved)
+            ],
+            refusal_trigger=refusal_trigger,
+            llm_prompt_tokens=execution.prompt_tokens,
+        )
+
+    assistant_message = None
     if store is not None:
         try:
-            store.append_assistant_message(
+            assistant_message = store.append_assistant_message(
                 cid,
                 response.answer_markdown,
                 [citation.model_dump() for citation in response.citations],
@@ -180,6 +232,39 @@ async def run_tool_loop(
                 "Failed to persist assistant message for conversation %s",
                 cid,
             )
+        else:
+            if user_message is not None:
+                try:
+                    store.append_turn_review(
+                        conversation_id=cid,
+                        user_message_id=user_message.id,
+                        assistant_message_id=assistant_message.id,
+                        raw_query=message,
+                        normalized_query=normalized.normalized_text,
+                        status=response.status.value,
+                        refusal_trigger=refusal_trigger,
+                        debug_requested=debug_requested,
+                        debug_authorized=debug_authorized,
+                        llm_prompt_tokens=execution.prompt_tokens,
+                        retrieved_chunks=_serialize_retrieved_chunks(
+                            execution.retrieved
+                        ),
+                    )
+                except Exception:
+                    logger.exception(
+                        "Failed to persist turn review for conversation %s",
+                        cid,
+                    )
+
+    log_event(
+        logger,
+        logging.INFO,
+        "chat.response_completed",
+        conversation_id=cid,
+        status=response.status.value,
+        citation_count=len(response.citations),
+        debug_info_included=response.debug_info is not None,
+    )
 
     return response
 
@@ -207,6 +292,7 @@ async def _openai_loop(
 ) -> ToolLoopExecution:
     """Run the OpenAI tool-calling loop."""
     all_retrieved: list[SearchResult] = []
+    prompt_tokens = 0
     full_messages = (
         [{"role": "system", "content": SYSTEM_PROMPT}]
         + _history_to_openai(history)
@@ -221,12 +307,16 @@ async def _openai_loop(
             tools=[_SEARCH_TOOL],
             tool_choice="auto",
         )
+        prompt_tokens += (
+            getattr(getattr(response, "usage", None), "prompt_tokens", 0) or 0
+        )
         choice = response.choices[0]
 
         if choice.finish_reason == "stop":
             return ToolLoopExecution(
                 answer_markdown=choice.message.content or "",
                 retrieved=all_retrieved,
+                prompt_tokens=prompt_tokens or None,
             )
 
         if choice.finish_reason == "tool_calls":
@@ -259,7 +349,10 @@ async def _openai_loop(
 
         break
 
-    return ToolLoopExecution(retrieved=all_retrieved)
+    return ToolLoopExecution(
+        retrieved=all_retrieved,
+        prompt_tokens=prompt_tokens or None,
+    )
 
 
 async def _gemini_loop(
@@ -272,6 +365,7 @@ async def _gemini_loop(
     from google.genai import types  # type: ignore[import-untyped]
 
     all_retrieved: list[SearchResult] = []
+    prompt_tokens = 0
     grounding_checked = False
     gemini_tool = types.Tool(
         function_declarations=[
@@ -303,6 +397,10 @@ async def _gemini_loop(
             contents=contents,
             config=config,
         )
+        prompt_tokens += (
+            getattr(getattr(response, "usage_metadata", None), "prompt_token_count", 0)
+            or 0
+        )
         candidate = response.candidates[0]
         contents.append(candidate.content)
 
@@ -316,6 +414,7 @@ async def _gemini_loop(
             return ToolLoopExecution(
                 answer_markdown="\n".join(text_parts),
                 retrieved=all_retrieved,
+                prompt_tokens=prompt_tokens or None,
             )
 
         tool_results = []
@@ -350,37 +449,46 @@ def _build_response_from_execution(
     conversation_id: str,
     normalized_query: str,
     execution: ToolLoopExecution,
-) -> ChatResponse:
+) -> tuple[ChatResponse, str | None]:
     if (
         execution.grounding_verdict is not None
         and not execution.grounding_verdict.grounded
     ):
         refusal_query = execution.grounding_query or normalized_query
-        return build_refusal_response(
-            conversation_id,
-            execution.grounding_verdict,
-            RefusalContext(normalized_query=refusal_query),
+        return (
+            build_refusal_response(
+                conversation_id,
+                execution.grounding_verdict,
+                RefusalContext(normalized_query=refusal_query),
+            ),
+            execution.grounding_verdict.reason,
         )
 
     if not execution.answer_markdown:
-        return ChatResponse(
-            conversation_id=conversation_id,
-            status=ChatStatus.NOT_FOUND,
-            answer_markdown=(
-                "I couldn't find information about that in the CPP knowledge base."
+        return (
+            ChatResponse(
+                conversation_id=conversation_id,
+                status=ChatStatus.NOT_FOUND,
+                answer_markdown=(
+                    "I couldn't find information about that in the CPP knowledge base."
+                ),
+                citations=[],
             ),
-            citations=[],
+            "retrieval.no_answer",
         )
 
     answer_body, citations = _extract_answer_and_citations(
         execution.answer_markdown,
         execution.retrieved,
     )
-    return ChatResponse(
-        conversation_id=conversation_id,
-        status=ChatStatus.ANSWERED,
-        answer_markdown=answer_body,
-        citations=citations,
+    return (
+        ChatResponse(
+            conversation_id=conversation_id,
+            status=ChatStatus.ANSWERED,
+            answer_markdown=answer_body,
+            citations=citations,
+        ),
+        None,
     )
 
 
@@ -435,9 +543,7 @@ def _history_to_gemini(history: list[Message], types: object) -> list[object]:
     contents = []
     for turn in history:
         role = "model" if turn.role == "assistant" else "user"
-        contents.append(
-            types.Content(role=role, parts=[types.Part(text=turn.content)])
-        )
+        contents.append(types.Content(role=role, parts=[types.Part(text=turn.content)]))
     return contents
 
 
@@ -534,3 +640,19 @@ def _extract_citations_from_text(
             seen_urls.add(result.url)
 
     return citations
+
+
+def _serialize_retrieved_chunks(
+    results: list[SearchResult],
+) -> list[dict[str, object]]:
+    return [
+        {
+            "chunk_id": result.chunk_id,
+            "title": result.title,
+            "section": result.section,
+            "url": result.url,
+            "snippet": result.snippet,
+            "score": result.score,
+        }
+        for result in results
+    ]
