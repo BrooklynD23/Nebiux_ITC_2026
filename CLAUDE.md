@@ -41,7 +41,7 @@ python scripts/build_index.py
 uvicorn src.api.main:app --reload
 cd frontend && npm run dev
 pytest
-python scripts/eval/run_eval.py
+python3 scripts/eval/run_eval.py
 ```
 
 ## Update Rules
