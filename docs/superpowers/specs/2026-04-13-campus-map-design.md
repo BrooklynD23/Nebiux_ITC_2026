@@ -23,6 +23,7 @@ The goal is to add an accessible, lightweight map panel that automatically appea
 | Map tiles | Leaflet.js + OpenStreetMap, CSS `grayscale(1)` | No API key, Google Maps visual aesthetic, lightweight |
 | Detection location | Backend (regex on `answer_markdown`) | Centralized, testable Python; no frontend bundle bloat |
 | Campus bounds | CPP bounding box enforced | Users cannot pan outside campus |
+| Multiple buildings | First match wins (v0.1) | Deliberate simplification; future iteration can return a list and show multi-pin view |
 
 ---
 
@@ -30,18 +31,23 @@ The goal is to add an accessible, lightweight map panel that automatically appea
 
 ```
 POST /chat
-  └── run_tool_loop() → answer_markdown
-        └── extract_map_data(answer_markdown, coords)   ← new
-              ├── regex: Building \d+ / Bldg \d+
-              ├── lookup: data/building_coords.json
-              └── returns BuildingLocation | None
-  └── ChatResponse { ..., map_data: BuildingLocation | None }   ← extended
+  └── run_tool_loop() → ChatResponse (answer_markdown, citations, ...)
+  └── extract_map_data(response.answer_markdown, coords)   ← new, in route handler
+        ├── regex: Building \d+ / Bldg \d+
+        ├── lookup: data/building_coords.json
+        └── returns BuildingLocation | None
+  └── response.map_data = result                           ← mutate before return
+  └── return response
 
 Frontend
-  useChat → attaches mapData to assistant Message
-  FloatingChatPanel → renders <MapPanel> to left of chat when mapData present
+  useChat → owns lastMapData: BuildingLocation | null derived from messages
+  useChat return → exposes lastMapData alongside messages, isLoading, error
+  App.tsx / parent → passes lastMapData + onCloseMap down to FloatingChatPanel
+  FloatingChatPanel → renders <MapPanel> to left of chat when lastMapData is set
   MapPanel → Leaflet map, greyscale tiles, branded pin, aria-live announcement
 ```
+
+**Note:** `run_tool_loop()` constructs and returns the full `ChatResponse` internally. The route handler calls `extract_map_data` on the returned `response.answer_markdown` and mutates `response.map_data` before returning — no changes to `tool_loop.py`, the retriever, or any LLM prompt.
 
 ---
 
@@ -58,7 +64,7 @@ Static lookup table — one entry per CPP building number. Adding or correcting 
 }
 ```
 
-Covers all ~80 numbered CPP campus buildings at launch.
+Covers all ~80 numbered CPP campus buildings at launch. Entries with `lat`/`lng` of `0, 0` are treated as invalid and discarded at the frontend guard (see Error Handling).
 
 ---
 
@@ -66,16 +72,32 @@ Covers all ~80 numbered CPP campus buildings at launch.
 
 ### `src/models.py`
 
-Add `BuildingLocation` and extend `ChatResponse`:
+Add `BuildingLocation` with coordinate validators, and extend `ChatResponse`:
 
 ```python
+from pydantic import field_validator
+
 class BuildingLocation(BaseModel):
     building_id: str        # "9"
     label: str              # "Building 9"
     name: str               # "College of Engineering"
-    lat: float
-    lng: float
+    lat: float              # validated: -90 to 90
+    lng: float              # validated: -180 to 180
     room: str | None = None # "Room 227" if present in answer
+
+    @field_validator("lat")
+    @classmethod
+    def valid_lat(cls, v: float) -> float:
+        if not -90 <= v <= 90:
+            raise ValueError("lat out of range")
+        return v
+
+    @field_validator("lng")
+    @classmethod
+    def valid_lng(cls, v: float) -> float:
+        if not -180 <= v <= 180:
+            raise ValueError("lng out of range")
+        return v
 
 class ChatResponse(BaseModel):
     conversation_id: str
@@ -83,16 +105,39 @@ class ChatResponse(BaseModel):
     answer_markdown: str
     citations: list[Citation]
     debug_info: ChatDebugInfo | None = None
-    map_data: BuildingLocation | None = None   # new
+    map_data: BuildingLocation | None = None   # new, defaults to None
+```
+
+Malformed `building_coords.json` entries (e.g., `"lat": null`) will fail Pydantic validation inside `extract_map_data` and be caught, returning `None` rather than propagating a 500.
+
+### `src/api/main.py` — lifespan addition
+
+Load `building_coords.json` once at startup, store in `app.state` (mirrors the existing retriever pattern):
+
+```python
+# inside the existing lifespan context manager, after retriever init:
+coords_path = Path("data/building_coords.json")
+if coords_path.exists():
+    app.state.building_coords = json.loads(coords_path.read_text())
+else:
+    logger.warning("building_coords.json not found — map feature disabled")
+    app.state.building_coords = {}
 ```
 
 ### `src/api/routes.py`
 
-Add extraction utility and call it after `run_tool_loop()`:
+Add dependency, extraction utility, and post-processing call:
 
 ```python
+import re, json
+from pathlib import Path
+from fastapi import Request
+
 _BUILDING_RE = re.compile(r'\b[Bb]uilding\s+(\d+)\b|\b[Bb]ldg\.?\s+(\d+)\b')
 _ROOM_RE     = re.compile(r'\b[Rr]oom\s+([\w-]+)\b')
+
+def get_building_coords(request: Request) -> dict:
+    return request.app.state.building_coords
 
 def extract_map_data(text: str, coords: dict) -> BuildingLocation | None:
     m = _BUILDING_RE.search(text)
@@ -102,17 +147,26 @@ def extract_map_data(text: str, coords: dict) -> BuildingLocation | None:
     entry = coords.get(building_id)
     if not entry:
         return None
-    room_m = _ROOM_RE.search(text)
-    return BuildingLocation(
-        building_id=building_id,
-        room=room_m.group(1) if room_m else None,
-        **entry,
-    )
+    try:
+        room_m = _ROOM_RE.search(text)
+        return BuildingLocation(
+            building_id=building_id,
+            room=room_m.group(1) if room_m else None,
+            **entry,
+        )
+    except Exception:
+        return None  # malformed entry in coords file
+
+# In the chat() handler, after run_tool_loop():
+async def chat(
+    body: ChatRequest,
+    coords: dict = Depends(get_building_coords),
+    ...
+) -> ChatResponse:
+    response = await run_tool_loop(...)
+    response.map_data = extract_map_data(response.answer_markdown, coords)
+    return response
 ```
-
-`coords` dict loaded once at app startup via FastAPI lifespan (same pattern as retriever init in `src/api/main.py`), injected as a dependency.
-
-**No changes** to `tool_loop.py`, the retriever, or any LLM prompt.
 
 ---
 
@@ -124,28 +178,39 @@ def extract_map_data(text: str, coords: dict) -> BuildingLocation | None:
 leaflet + @types/leaflet
 ```
 
+Import `leaflet/dist/leaflet.css` at the top of `MapPanel.tsx` (or in the app's top-level CSS entry point). Without this, tiles and map controls will not render correctly.
+
 ### Files modified
 
 | File | Change |
 |---|---|
 | `frontend/src/types.ts` | Add `BuildingLocation` interface; add `mapData?: BuildingLocation` to `Message` |
-| `frontend/src/api/client.ts` | Add `map_data` field to `ChatResponse` type |
-| `frontend/src/hooks/useChat.ts` | Attach `mapData: response.map_data ?? undefined` when building assistant message |
-| `frontend/src/components/FloatingChatPanel.tsx` | Track `lastMapData` across messages; render `<MapPanel>` to left of chat when present |
+| `frontend/src/api/client.ts` | Add `map_data?: BuildingLocation` field to frontend `ChatResponse` type |
+| `frontend/src/hooks/useChat.ts` | Attach `mapData` to assistant message; derive and return `lastMapData`; add `onCloseMap` callback |
+| `frontend/src/components/FloatingChatPanel.tsx` | Accept `lastMapData` + `onCloseMap` as props; render `<MapPanel>` left of chat when set |
+| `frontend/src/api/mock.ts` | Add `map_data` to the location-based mock response so the panel is testable without the backend |
 
-### New files
+### State and data flow
 
-| File | Purpose |
-|---|---|
-| `frontend/src/components/MapPanel.tsx` | Leaflet map panel component |
-| `frontend/src/components/MapPanel.css` | Styles matching existing design system |
+`lastMapData` is owned by `useChat`. It is derived from the last assistant `Message` where `mapData` is non-null, and updated on every new assistant message. `useChat` returns it alongside `messages`, `isLoading`, and `error`. The parent that renders `FloatingChatPanel` passes it down as a prop, along with an `onCloseMap` callback that clears it.
+
+```
+useChat returns: { messages, isLoading, error, lastMapData, onCloseMap, send }
+  ↓
+App.tsx / parent destructures lastMapData, onCloseMap
+  ↓
+<FloatingChatPanel lastMapData={lastMapData} onCloseMap={onCloseMap} ...>
+  ↓
+{lastMapData && <MapPanel building={lastMapData} onClose={onCloseMap} />}
+```
 
 ### `MapPanel` behaviour
 
-- Initializes Leaflet with OpenStreetMap tiles, `filter: grayscale(1)` applied to the tile layer container
-- Campus bounding box enforced: `map.setMaxBounds(CPP_BOUNDS)`, `minZoom` set so users cannot zoom out past campus
-- On `building` prop mount/change: drops a custom SVG pin in brand green (`#0f5f4f`), opens tooltip showing `label` + `room`, flies map to pin with smooth animation
-- Close button sets `lastMapData` back to `null` in `FloatingChatPanel`, panel unmounts
+- Imports `leaflet/dist/leaflet.css` at top of file
+- Initializes Leaflet with OpenStreetMap tiles; the tile container receives `style="filter: grayscale(1)"` via a CSS class so only tiles are greyscale, not the pin
+- Campus bounding box enforced: `map.setMaxBounds(CPP_BOUNDS)`, `minZoom` prevents zooming out past campus
+- On `building` prop mount/change: drops a custom SVG pin in brand green (`#0f5f4f`), opens a popup showing `label` + `room`, calls `map.flyTo([lat, lng], zoom, { animate: !prefersReducedMotion })` — animation respects `prefers-reduced-motion`
+- Close button calls `onClose` prop
 
 ### Visual spec
 
@@ -159,17 +224,19 @@ Matches existing design system exactly:
 - Brand pin color: `#0f5f4f`
 - Building badge: `rgba(15,95,79,0.1)` background, `var(--brand)` text
 - Panel width: `26rem`; height: `34rem`
-- Slide-in animation: `translateY(16px) → 0`, `0.28s cubic-bezier(0.22,1,0.36,1)`
+- Slide-in animation wrapped in `@media (prefers-reduced-motion: no-preference)`: `translateY(16px) → 0`, `0.28s cubic-bezier(0.22,1,0.36,1)`
 
 ---
 
 ## Accessibility
 
 - `MapPanel` root: `role="complementary"`, `aria-label="Campus map showing {label}"`
-- `aria-live="polite"` region in `FloatingChatPanel` announces `"Map updated: {label}"` on each new `mapData` — screen readers receive location without map interaction
+- `aria-live="polite"` region in `FloatingChatPanel` announces `"Map updated: {label}"` on each new `lastMapData` — screen readers receive location without map interaction
 - Pin tooltip is keyboard-focusable via a visually-hidden `<button>` at the marker position
-- Close button is labelled `aria-label="Close map panel"`
+- Close button labelled `aria-label="Close map panel"`
 - Map tiles degrade gracefully to grey placeholders if tiles fail to load; pin still renders
+- `map.flyTo` animation disabled when `window.matchMedia('(prefers-reduced-motion: reduce)').matches`
+- Slide-in CSS animation wrapped in `@media (prefers-reduced-motion: no-preference)`
 
 ---
 
@@ -177,27 +244,29 @@ Matches existing design system exactly:
 
 | Scenario | Behaviour |
 |---|---|
-| `building_coords.json` missing at startup | Warning logged, `coords = {}`, feature silently disabled |
+| `building_coords.json` missing at startup | Warning logged, `coords = {}`, feature silently disabled — chat works normally |
+| Malformed coords entry (`lat: null`, out-of-range) | Pydantic validator raises inside `extract_map_data`, caught, returns `None` |
 | Building number not in lookup (e.g., "Building 99") | `map_data = None`, no panel shown, no user-facing error |
-| Multiple buildings in answer | First regex match wins |
-| `lat`/`lng` are `0, 0` | `useChat` discards the `mapData`, panel does not open |
-| Tile network failure | Tiles show as grey placeholders; pin and tooltip still render |
-| Next answer has no building | Panel stays open showing last known building; user closes manually |
-| Next answer has a different building | Panel flies smoothly to new pin |
+| Multiple buildings in answer | First regex match wins (v0.1 deliberate simplification) |
+| `lat`/`lng` are `0, 0` on frontend | `useChat` checks `mapData.lat !== 0 \|\| mapData.lng !== 0` before setting `lastMapData`; panel does not open |
+| Tile network failure | Tiles show as grey placeholders; pin and popup still render |
+| Next answer has no building | Panel stays showing last known building; user closes manually |
+| Next answer has a different building | `lastMapData` updates, panel flies to new pin |
 
 ---
 
 ## Testing
 
-### Backend unit tests — `tests/test_building_detection.py`
+### Backend unit tests — `tests/test_building_detection.py` (new file)
 
 - `"...Building 9, Room 227..."` → `BuildingLocation(building_id="9", room="227", ...)`
 - `"...Bldg 15..."` → matches abbreviation form
 - `"no location here"` → `None`
 - `"Building 99"` → unknown building → `None`
 - `"...Room 155A..."` → room extracted as `"155A"`
+- Malformed coords entry → `None`, no exception raised
 
-### Backend integration tests — `tests/test_routes.py`
+### Backend integration tests — `tests/test_api.py` (existing file, add to `TestChatEndpoint`)
 
 - POST `/chat` `"Where is the Engineering Dean's office?"` → `response.map_data.building_id == "9"`
 - POST `/chat` `"What are the graduation requirements?"` → `response.map_data is None`
@@ -211,3 +280,5 @@ Matches existing design system exactly:
 5. Close map panel → chat returns to normal width
 6. DevTools: no console errors; confirm `aria-live` region fires on each location response
 7. Keyboard-only navigation: tab to pin tooltip, confirm readable; tab to close button, confirm dismissal works
+8. Enable OS reduced-motion setting → slide-in is instant, flyTo is instant
+9. With `VITE_USE_MOCK=true`: location mock response shows map panel correctly
