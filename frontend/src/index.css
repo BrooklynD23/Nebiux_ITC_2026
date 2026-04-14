@@ -540,6 +540,17 @@ button {
   margin-bottom: 0;
 }
 
+.assistant-audio-button {
+  margin-top: 0.75rem;
+  border: 1px solid rgba(24, 46, 40, 0.12);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.86);
+  color: var(--brand);
+  padding: 0.45rem 0.8rem;
+  font-size: 0.88rem;
+  font-weight: 700;
+}
+
 .citation-list {
   margin-top: 0.75rem;
   padding-top: 0.75rem;
@@ -609,9 +620,27 @@ button {
 }
 
 .chat-input {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
   padding-top: 1rem;
   margin-top: 1rem;
   border-top: 1px solid var(--border);
+}
+
+.chat-input__controls,
+.chat-input__field-group {
+  display: flex;
+  gap: 0.75rem;
+  align-items: flex-end;
+}
+
+.chat-input__controls {
+  justify-content: space-between;
+}
+
+.chat-input__field-group {
+  flex: 1;
 }
 
 .chat-input__textarea {
@@ -625,10 +654,44 @@ button {
   color: var(--text);
 }
 
+.chat-input__voice-button,
 .chat-input__send,
 .app-header__reset,
 .error-banner__dismiss {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.9);
+  color: var(--text);
   padding: 0.85rem 1rem;
+}
+
+.chat-input__voice-button {
+  min-width: 6.5rem;
+  font-weight: 700;
+}
+
+.chat-input__voice-button--listening {
+  background: rgba(15, 95, 79, 0.14);
+  border-color: rgba(15, 95, 79, 0.28);
+  color: var(--brand);
+}
+
+.chat-input__voice-button--processing {
+  color: var(--muted);
+}
+
+.chat-input__helper {
+  margin: 0.7rem 0 0;
+  font-size: 0.92rem;
+  color: var(--muted);
+}
+
+.chat-input__helper--error {
+  color: var(--danger);
+}
+
+.chat-input__helper--listening {
+  color: var(--brand);
 }
 
 @keyframes pulse {

@@ -36,6 +36,18 @@ class Settings(BaseSettings):
         alias="ADMIN_API_TOKEN",
     )
     log_level: str = Field(default="INFO", alias="LOG_LEVEL")
+    voice_transcription_enabled: bool = Field(
+        default=True,
+        alias="VOICE_TRANSCRIPTION_ENABLED",
+    )
+    voice_transcription_model: str = Field(
+        default="gpt-4o-mini-transcribe",
+        alias="VOICE_TRANSCRIPTION_MODEL",
+    )
+    voice_transcription_max_bytes: int = Field(
+        default=5_000_000,
+        alias="VOICE_TRANSCRIPTION_MAX_BYTES",
+    )
 
     host: str = Field(default="0.0.0.0", alias="HOST")
     port: int = Field(default=8000, alias="PORT")

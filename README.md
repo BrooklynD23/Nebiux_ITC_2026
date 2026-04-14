@@ -2,6 +2,11 @@
 
 Cal Poly Pomona campus assistant built for the MISSA ITC 2026 competition.
 
+Competition judges should start with:
+
+- [Judging and Deployment Guide](docs/judging-and-deployment.md)
+- [V0.1 Source of Truth](docs/v0.1/README.md)
+
 The repo is now standardized around a simple web-app architecture:
 
 - `frontend/`: React + Vite chat UI
@@ -18,6 +23,8 @@ Browser (React + Vite)
         v
 FastAPI /chat API
         |
+        +--> FastAPI /transcribe API (optional voice fallback)
+        |
         v
 Precomputed retrieval artifacts in data/
   - cleaned corpus
@@ -32,10 +39,12 @@ Precomputed retrieval artifacts in data/
 - **Frontend**: keep `React + Vite` for V0.1. Do not migrate to Next.js during the competition build unless the team later needs SSR or multi-route product pages.
 - **Backend**: `Python 3.11 + FastAPI`.
 - **Backend routing**: deterministic pre-LLM support routing sends urgent CAPS, Student Health Services, University Police, and Care Center requests to cited CPP resources before the normal LLM path.
+- **Admin review**: privileged debug and admin review APIs are available without student accounts.
 - **Dev environment**: multi-container Docker Compose, not a single container. Python and Node have different toolchains and should stay isolated.
 - **RAG storage**: no local relational DB is required for the MVP. Use file-based artifacts plus persisted index directories.
 - **Runtime indexing**: preprocessing and index build are **offline / one-time startup** tasks, never per request.
 - **Hosted deployment**: primary recommendation is a single VM deployment using `docker-compose.hosted.yml`; Vercel is acceptable only for a static frontend split, not for the full stack.
+- **Voice accessibility**: microphone capture is a progressive enhancement. `POST /chat` stays text-only; hosted voice input requires HTTPS, while localhost remains valid for development.
 
 Detailed planning and rationale:
 
@@ -89,6 +98,7 @@ cp .env.example .env
 python scripts/check_corpus.py
 python scripts/preprocess/run_pipeline.py
 python scripts/build_index.py
+python scripts/smoke_rag_pipeline.py
 
 uvicorn src.api.main:app --reload
 ```
@@ -114,6 +124,9 @@ Use [`.env.example`](.env.example) as the source of truth.
 - `GEMINI_API_KEY=...`
 - `OPENAI_API_KEY=...`
 - `ADMIN_API_TOKEN=...` for privileged admin review endpoints and `/chat` debug mode
+- `VOICE_TRANSCRIPTION_ENABLED=true`
+- `VOICE_TRANSCRIPTION_MODEL=gpt-4o-mini-transcribe`
+- `VOICE_TRANSCRIPTION_MAX_BYTES=5000000`
 - `CORS_ORIGINS=http://localhost:5173,http://127.0.0.1:5173`
 - `RAW_CORPUS_DIR=dataset/itc2026_ai_corpus`
 - `DATA_DIR=data`
@@ -164,6 +177,8 @@ Recommended hosting target: **Oracle Cloud single VM**.
 
 Fallback: **AWS EC2** using the same compose file.
 
+If you want the voice input path to work on the hosted demo, terminate TLS and serve the public app over `https://...`. Browsers allow microphone APIs on `localhost` during development, but not on a plain-HTTP public host.
+
 Not recommended as the primary host: **Vercel full-stack**, because the backend depends on persisted local artifacts and is not a good fit for serverless filesystem/runtime constraints.
 
 ## Storage Decision
@@ -189,4 +204,5 @@ The repo now includes:
 - SQLite-backed admin review metadata keyed by `conversation_id`
 - token-protected admin review endpoints
 - structured JSON lifecycle logging and privileged chat debug responses
+- voice accessibility with browser-native and transcription fallback paths
 - retrieval normalization, ambiguity handling, and weak-retrieval refusal gating

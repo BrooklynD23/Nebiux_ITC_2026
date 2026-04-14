@@ -53,3 +53,10 @@ def test_settings_parse_admin_token_and_log_level() -> None:
 
     assert settings.admin_api_token == "pilot-secret"
     assert settings.log_level == "DEBUG"
+
+def test_settings_default_voice_transcription_values() -> None:
+    settings = Settings(_env_file=None)
+
+    assert settings.voice_transcription_enabled is True
+    assert settings.voice_transcription_model == "gpt-4o-mini-transcribe"
+    assert settings.voice_transcription_max_bytes == 5_000_000

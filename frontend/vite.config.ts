@@ -15,6 +15,10 @@ export default defineConfig(({ mode }) => {
           target: proxyTarget,
           changeOrigin: true,
         },
+        '/transcribe': {
+          target: proxyTarget,
+          changeOrigin: true,
+        },
         '/health': {
           target: proxyTarget,
           changeOrigin: true,

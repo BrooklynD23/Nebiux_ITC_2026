@@ -104,7 +104,6 @@ class ChatResponse(BaseModel):
         description="Privileged debug details for authorized callers.",
     )
 
-
 class AdminTranscriptMessage(BaseModel):
     """A persisted message returned through admin review routes."""
 
@@ -188,6 +187,12 @@ class AdminConversationDetail(BaseModel):
         default_factory=list,
         description="Ordered transcript turns with review metadata.",
     )
+
+
+class TranscriptionResponse(BaseModel):
+    """Response payload for POST /transcribe."""
+
+    transcript: str = Field(..., description="Trimmed transcript text.")
 
 
 class SearchResult(BaseModel):

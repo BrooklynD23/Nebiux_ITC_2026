@@ -1,13 +1,22 @@
 import ReactMarkdown from 'react-markdown';
 import type { Message } from '../types';
+import { AssistantAudioButton } from './AssistantAudioButton';
 import { CitationList } from './CitationList';
 import { RefusalMessage } from './RefusalMessage';
 
 interface MessageBubbleProps {
   readonly message: Message;
+  readonly onTogglePlayback?: () => void;
+  readonly playbackSupported?: boolean;
+  readonly isSpeaking?: boolean;
 }
 
-export function MessageBubble({ message }: MessageBubbleProps): JSX.Element {
+export function MessageBubble({
+  message,
+  onTogglePlayback,
+  playbackSupported = false,
+  isSpeaking = false,
+}: MessageBubbleProps): JSX.Element {
   const isUser = message.role === 'user';
   const isNotFound = message.status === 'not_found';
   const isError = message.status === 'error';
@@ -28,6 +37,13 @@ export function MessageBubble({ message }: MessageBubbleProps): JSX.Element {
           <ReactMarkdown>{message.content}</ReactMarkdown>
         )}
       </div>
+
+      {!isUser && !isNotFound && !isError && playbackSupported && onTogglePlayback && (
+        <AssistantAudioButton
+          isSpeaking={isSpeaking}
+          onToggle={onTogglePlayback}
+        />
+      )}
 
       {!isUser && message.citations && message.citations.length > 0 && (
         <CitationList citations={message.citations} />
