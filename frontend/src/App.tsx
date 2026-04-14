@@ -1,4 +1,6 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import campusBackground from './assets/CPP_BG.jpg';
+import cppLogo from './assets/cpp-logo.png';
 import { FloatingChatPanel } from './components/FloatingChatPanel';
 import { StatCard } from './components/StatCard';
 import { UserTable } from './components/UserTable';
@@ -6,6 +8,80 @@ import { MOCK_ACTIVITY, MOCK_USERS } from './data/admin';
 import { useChat } from './hooks/useChat';
 
 type View = 'landing' | 'home' | 'admin';
+
+type ResourcePreview = {
+  title: string;
+  description: string;
+  url: string;
+};
+
+const LIBRARY_PREVIEW: ResourcePreview = {
+  title: 'Library Hours',
+  description:
+    'Preview the library hours page with current building access and service schedules.',
+  url: 'https://www.cpp.edu/library/hours/index.shtml',
+};
+
+const GRADUATION_PREVIEW: ResourcePreview = {
+  title: 'Applying for Graduation',
+  description:
+    'Preview the registrar page with graduation requirements, deadlines, and next steps.',
+  url: 'https://www.cpp.edu/registrar/graduation/applying-for-graduation.shtml',
+};
+
+const DINING_PREVIEW: ResourcePreview = {
+  title: 'Dining Options',
+  description:
+    'Preview CPP dining resources with campus food locations and meal options.',
+  url: 'https://www.cpp.edu/aboutcpp/visitor-information/dining.shtml',
+};
+
+const PARKING_PREVIEW: ResourcePreview = {
+  title: 'Parking Information',
+  description:
+    'Preview parking and transportation details, including permits, maps, and visitor guidance.',
+  url: 'https://www.cpp.edu/parking/',
+};
+
+const RESOURCE_PREVIEWS: readonly ResourcePreview[] = [
+  LIBRARY_PREVIEW,
+  GRADUATION_PREVIEW,
+  DINING_PREVIEW,
+  PARKING_PREVIEW,
+];
+
+function getPreviewForPrompt(prompt: string): ResourcePreview | null {
+  const normalizedPrompt = prompt.trim().toLowerCase();
+
+  if (normalizedPrompt.includes('graduation')) {
+    return GRADUATION_PREVIEW;
+  }
+
+  if (normalizedPrompt.includes('parking')) {
+    return PARKING_PREVIEW;
+  }
+
+  if (normalizedPrompt.includes('dining')) {
+    return DINING_PREVIEW;
+  }
+
+  if (normalizedPrompt.includes('library')) {
+    return LIBRARY_PREVIEW;
+  }
+
+  return null;
+}
+
+function getPreviewFromUrl(url: string): ResourcePreview {
+  return (
+    RESOURCE_PREVIEWS.find((preview) => preview.url === url) ?? {
+      title: 'Official CPP page',
+      description:
+        'Preview the official campus resource referenced in the latest assistant answer.',
+      url,
+    }
+  );
+}
 
 function formatTimestamp(timestamp: number): string {
   return new Intl.DateTimeFormat('en-US', {
@@ -19,6 +95,7 @@ function formatTimestamp(timestamp: number): string {
 export default function App(): JSX.Element {
   const [activeView, setActiveView] = useState<View>('landing');
   const [isChatOpen, setIsChatOpen] = useState(false);
+  const [activePreview, setActivePreview] = useState<ResourcePreview | null>(null);
   const { messages, isLoading, error, send, resetConversation } = useChat();
 
   const userMessages = messages.filter((message) => message.role === 'user');
@@ -65,7 +142,31 @@ export default function App(): JSX.Element {
   const heroStats = [
     { label: 'Campus topics indexed', value: '1.2k+' },
     { label: 'Average response time', value: '< 2s' },
-    { label: 'Student support coverage', value: '24/7' },
+    { label: 'Support available', value: '24/7' },
+  ];
+
+  const supportPillars = [
+    {
+      title: 'Explore campus life',
+      copy:
+        'Learn more about academics, student services, dining, parking, and the day-to-day experience at Cal Poly Pomona.',
+    },
+    {
+      title: 'Find answers with confidence',
+      copy:
+        'Get helpful guidance quickly so you can keep moving toward your next step.',
+    },
+    {
+      title: 'Connect with real people',
+      copy:
+        'When you want to speak with someone directly, we can help you reach the right campus office.',
+    },
+  ];
+
+  const landingMoments = [
+    'Ask about admissions, financial aid, student life, or campus services.',
+    'Browse answers and next steps in a way that feels welcoming and easy to follow.',
+    'Reach out to university staff whenever your question needs a personal response.',
   ];
 
   const overviewStats = [
@@ -91,21 +192,66 @@ export default function App(): JSX.Element {
     },
   ];
 
+  useEffect(() => {
+    const latestAssistantMessage = [...messages]
+      .reverse()
+      .find(
+        (message) =>
+          message.role === 'assistant' &&
+          message.status === 'answered' &&
+          message.citations &&
+          message.citations.length > 0,
+      );
+
+    const latestCitationUrl = latestAssistantMessage?.citations?.[0]?.url;
+
+    if (!latestCitationUrl) {
+      return;
+    }
+
+    setActivePreview((currentPreview) => {
+      if (currentPreview?.url === latestCitationUrl) {
+        return currentPreview;
+      }
+
+      return getPreviewFromUrl(latestCitationUrl);
+    });
+  }, [messages]);
+
+  function handlePromptSelection(prompt: string): void {
+    const preview = getPreviewForPrompt(prompt);
+
+    if (preview) {
+      setActivePreview(preview);
+    }
+
+    setIsChatOpen(true);
+    void send(prompt);
+  }
+
   return (
     <div className="site-shell">
       <div className="site-backdrop" />
 
       <header className="topbar">
-        <div className="brand-lockup">
-          <span className="brand-lockup__badge">CPP</span>
+        <button
+          className="brand-lockup brand-lockup--button"
+          onClick={() => setActiveView('landing')}
+          type="button"
+        >
+          <img
+            alt="Cal Poly Pomona logo"
+            className="brand-lockup__logo"
+            src={cppLogo}
+          />
           <div>
             <p className="brand-lockup__eyebrow">Bronco Knowledge Assistant</p>
             <h1 className="brand-lockup__title">Cal Poly Pomona support hub</h1>
           </div>
-        </div>
+        </button>
 
         <nav className="topbar__nav" aria-label="Primary navigation">
-          <button
+         {/* <button
             className={`topbar__link ${activeView === 'landing' ? 'is-active' : ''}`}
             onClick={() => setActiveView('landing')}
             type="button"
@@ -126,82 +272,148 @@ export default function App(): JSX.Element {
           >
             Admin
           </button>
+          */}
         </nav>
       </header>
 
       <main className="page-frame">
         {activeView === 'landing' && (
-          <section className="hero-panel">
-            <div className="hero-panel__content">
-              <p className="section-kicker">Landing page</p>
-              <h2 className="hero-panel__title">
-                A front door for Cal Poly Pomona questions, guidance, and
-                campus support.
-              </h2>
-              <p className="hero-panel__copy">
-                This skeletal frontend framework gives the project a branded
-                landing page, a student-facing home experience with a chatbot
-                popup, and an admin dashboard ready to plug into real analytics.
-              </p>
+          <div className="landing-page">
+            <section
+              className="hero-panel hero-panel--landing"
+              style={{
+                backgroundImage: `linear-gradient(180deg, rgba(7, 66, 42, 0.96) 0%, rgba(6, 60, 39, 0.92) 58%, rgba(6, 60, 39, 0.78) 78%, rgba(244, 248, 243, 0.88) 100%), linear-gradient(90deg, rgba(6, 60, 39, 0.88) 0%, rgba(6, 60, 39, 0.54) 26%, rgba(6, 60, 39, 0.18) 20%), url(${campusBackground})`,
+              }}
+            >
+              <div className="hero-panel__content">
+                <p className="section-kicker">Learn by doing</p>
+                <h2 className="hero-panel__title">
+                  Have Questions? We Have Answers.
+                </h2>
+                <p className="hero-panel__copy">
+                  We are here to help families of future and current Broncos.<br></br>
+                  Explore student life, discover resources, and feel more at home with
+                  every question.
+                </p>
 
-              <div className="hero-panel__actions">
-                <button
-                  className="button button--primary"
-                  onClick={() => setActiveView('home')}
-                  type="button"
-                >
-                  Open student home
-                </button>
-                <button
-                  className="button button--secondary"
-                  onClick={() => setActiveView('admin')}
-                  type="button"
-                >
-                  View admin dashboard
-                </button>
+                <div className="hero-panel__actions">
+                  <button
+                    className="button button--primary"
+                    onClick={() => setActiveView('home')}
+                    type="button"
+                  >
+                    Start asking
+                  </button>
+                  <a
+                    className="button button--secondary button--link"
+                    href="https://engage.cpp.edu/register/ask_us_a_question"
+                    rel="noreferrer"
+                    target="_blank"
+                  >
+                    Speak with campus staff
+                  </a>
+                </div>
+
+                <div className="hero-metrics">
+                  {heroStats.map((stat) => (
+                    <article className="hero-metric" key={stat.label}>
+                      <strong>{stat.value}</strong>
+                      <span>{stat.label}</span>
+                    </article>
+                  ))}
+                  <br></br>
+                  <br></br>
+                  <br></br>
+                </div>
               </div>
 
-              <div className="hero-metrics">
-                {heroStats.map((stat) => (
-                  <article className="hero-metric" key={stat.label}>
-                    <strong>{stat.value}</strong>
-                    <span>{stat.label}</span>
+              <div className="hero-panel__visual" aria-hidden="true">
+                <div className="hero-panel__visual-mark">
+                  <img alt="" src={cppLogo} />
+                </div>
+                <div className="hero-panel__visual-copy">
+                  <span>Bronco-first support</span>
+                  <strong>Friendly guidance for future students and families.</strong>
+                </div>
+              </div>
+            </section>
+
+            <section className="landing-support">
+              <div className="landing-section-heading">
+                <h3>If you want to...</h3>
+              </div>
+
+              <div className="landing-support__grid">
+                {supportPillars.map((pillar) => (
+                  <article className="landing-support__item" key={pillar.title}>
+                    <h4>{pillar.title}</h4>
+                    <p>{pillar.copy}</p>
                   </article>
                 ))}
               </div>
-            </div>
+            </section>
 
-            <aside className="preview-card">
-              <p className="section-kicker">Framework coverage</p>
-              <h3>Designed around the frontend you asked for</h3>
-              <ul className="preview-card__list">
-                <li>Landing page for onboarding and value proposition</li>
-                <li>Home page with floating chatbot popup and quick actions</li>
-                <li>Admin dashboard with user overview and recent activity</li>
-                <li>Frontend-only analytics placeholders for future APIs</li>
-              </ul>
-            </aside>
-          </section>
+            <section className="landing-detail">
+              <div className="landing-detail__intro">
+                <h3>Start with a question and let us help guide the way.</h3>
+              </div>
+
+              <div className="landing-detail__steps">
+                {landingMoments.map((step) => (
+                  <div className="landing-detail__step" key={step}>
+                    <span />
+                    <p>{step}</p>
+                  </div>
+                ))}
+              </div>
+            </section>
+
+            <section className="landing-cta landing-cta--split">
+              <div>
+                <h3>Have a unique question? Speak to staff.</h3>
+                <p className="landing-cta__copy">
+                  If you would rather connect with someone on campus directly,
+                  we would be glad to help you reach the right team.
+                </p>
+              </div>
+              <div className="landing-cta__actions">
+                <a
+                  className="button button--primary button--link"
+                  href="https://engage.cpp.edu/register/ask_us_a_question"
+                  rel="noreferrer"
+                  target="_blank"
+                >
+                  Contact campus staff
+                </a>
+                <button
+                  className="button button--secondary"
+                  onClick={() => setActiveView('home')}
+                  type="button"
+                >
+                  Ask Bronco Assistant first
+                </button>
+              </div>
+            </section>
+          </div>
         )}
 
         {activeView === 'home' && (
           <section className="workspace-grid">
             <div className="workspace-card workspace-card--feature">
-              <p className="section-kicker">Home page</p>
-              <h2>Guide students to the right answer faster.</h2>
+              <p className="section-kicker">Welcome!</p>
+              <h2>Bronco Assistant</h2>
               <p>
-                Keep the main experience lightweight, then let the chatbot step
-                in as a contextual popup for admissions, advising, dining,
-                parking, and campus life questions.
+                Let the assistant help with admissions, advising, dining,
+                parking, and everyday questions about campus life.
               </p>
 
               <div className="signal-strip">
                 <div>
-                  <span>Current prompts sent</span>
+                  <span># Questions Asked</span>
                   <strong>{currentSessionQuestions}</strong>
                 </div>
                 <div>
-                  <span>Responses returned</span>
+                  <span># Responses Returned</span>
                   <strong>{currentSessionAnswered}</strong>
                 </div>
                 <div>
@@ -209,6 +421,43 @@ export default function App(): JSX.Element {
                   <strong>{isChatOpen ? 'Open' : 'Closed'}</strong>
                 </div>
               </div>
+
+              <section
+                aria-labelledby="resource-preview-title"
+                className="resource-preview"
+              >
+                {activePreview ? (
+                  <>
+                    <div className="resource-preview__header">
+                      <div>
+                        <p className="section-kicker">Website preview</p>
+                        <h3 id="resource-preview-title">{activePreview.title}</h3>
+                      </div>
+                      <a
+                        className="button button--secondary button--link resource-preview__link"
+                        href={activePreview.url}
+                        rel="noreferrer"
+                        target="_blank"
+                      >
+                        Open full page
+                      </a>
+                    </div>
+                    <p className="resource-preview__copy">
+                      {activePreview.description}
+                    </p>
+                    <div className="resource-preview__frame">
+                      <iframe
+                        loading="lazy"
+                        referrerPolicy="strict-origin-when-cross-origin"
+                        src={activePreview.url}
+                        title={activePreview.title}
+                      />
+                    </div>
+                  </>
+                ) : (
+                  <div className="resource-preview__empty" aria-hidden="true" />
+                )}
+              </section>
             </div>
 
             <div className="workspace-card">
@@ -216,45 +465,26 @@ export default function App(): JSX.Element {
               <div className="quick-links">
                 <button
                   className="quick-links__item"
-                  onClick={() => {
-                    setIsChatOpen(true);
-                    void send('How do I apply for graduation?');
-                  }}
+                  onClick={() => handlePromptSelection('How do I apply for graduation?')}
                   type="button"
                 >
                   Graduation help
                 </button>
                 <button
                   className="quick-links__item"
-                  onClick={() => {
-                    setIsChatOpen(true);
-                    void send('Where can I find parking information?');
-                  }}
+                  onClick={() => handlePromptSelection('Where can I find parking information?')}
                   type="button"
                 >
                   Parking info
                 </button>
                 <button
                   className="quick-links__item"
-                  onClick={() => {
-                    setIsChatOpen(true);
-                    void send('What dining options are on campus?');
-                  }}
+                  onClick={() => handlePromptSelection('What dining options are on campus?')}
                   type="button"
                 >
                   Dining options
                 </button>
               </div>
-            </div>
-
-            <div className="workspace-card workspace-card--status">
-              <p className="section-kicker">Implementation note</p>
-              <h3>Ready for real usage telemetry</h3>
-              <p>
-                The dashboard is wired to reflect this session immediately and
-                includes mock records so the layout is useful before the backend
-                analytics endpoints exist.
-              </p>
             </div>
 
             <button
@@ -274,10 +504,11 @@ export default function App(): JSX.Element {
               isOpen={isChatOpen}
               messages={messages}
               onClose={() => setIsChatOpen(false)}
-              onReset={resetConversation}
-              onSend={(text) => {
-                void send(text);
+              onReset={() => {
+                setActivePreview(null);
+                resetConversation();
               }}
+              onSend={handlePromptSelection}
             />
           </section>
         )}
@@ -313,7 +544,7 @@ export default function App(): JSX.Element {
               <section className="dashboard-panel">
                 <div className="dashboard-panel__header">
                   <h3>User overview</h3>
-                  <p>Placeholder table for the records your backend will feed.</p>
+                  <p>Live activity and visitor interest at a glance.</p>
                 </div>
                 <UserTable users={dashboardUsers} />
               </section>
@@ -321,7 +552,7 @@ export default function App(): JSX.Element {
               <section className="dashboard-panel">
                 <div className="dashboard-panel__header">
                   <h3>Recent activity</h3>
-                  <p>Combines seed data with the current browser session.</p>
+                  <p>Recent questions and engagement across the assistant.</p>
                 </div>
 
                 <div className="activity-feed">
