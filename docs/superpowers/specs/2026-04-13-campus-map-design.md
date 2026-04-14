@@ -34,17 +34,17 @@ POST /chat
   └── run_tool_loop() → ChatResponse (answer_markdown, citations, ...)
   └── extract_map_data(response.answer_markdown, coords)   ← new, in route handler
         ├── regex: Building \d+ / Bldg \d+
-        ├── lookup: data/building_coords.json
+        ├── lookup: get_settings().data_dir / "building_coords.json"
         └── returns BuildingLocation | None
   └── response.map_data = result                           ← mutate before return
   └── return response
 
 Frontend
-  useChat → owns lastMapData: BuildingLocation | null derived from messages
+  useChat → owns lastMapData: BuildingLocation | null as visible map state
   useChat return → exposes lastMapData alongside messages, isLoading, error
   App.tsx / parent → passes lastMapData + onCloseMap down to FloatingChatPanel
-  FloatingChatPanel → renders <MapPanel> to left of chat when lastMapData is set
-  MapPanel → Leaflet map, greyscale tiles, branded pin, aria-live announcement
+  FloatingChatPanel → renders a positioned chat-panel-stack shell
+  MapPanel → Leaflet map, greyscale tiles, branded pin, responsive desktop/mobile layout
 ```
 
 **Note:** `run_tool_loop()` constructs and returns the full `ChatResponse` internally. The route handler calls `extract_map_data` on the returned `response.answer_markdown` and mutates `response.map_data` before returning — no changes to `tool_loop.py`, the retriever, or any LLM prompt.
@@ -115,47 +115,18 @@ Malformed `building_coords.json` entries (e.g., `"lat": null`) will fail Pydanti
 Load `building_coords.json` once at startup, store in `app.state` (mirrors the existing retriever pattern):
 
 ```python
-# inside the existing lifespan context manager, after retriever init:
-coords_path = Path("data/building_coords.json")
-if coords_path.exists():
-    app.state.building_coords = json.loads(coords_path.read_text())
-else:
-    logger.warning("building_coords.json not found — map feature disabled")
-    app.state.building_coords = {}
+# inside the existing lifespan context manager:
+app.state.building_coords = load_building_coords()
 ```
+
+`load_building_coords()` should resolve the file from `get_settings().data_dir / "building_coords.json"` by default so existing `DATA_DIR` overrides continue to work.
 
 ### `src/api/routes.py`
 
 Add dependency, extraction utility, and post-processing call:
 
 ```python
-import re, json
-from pathlib import Path
-from fastapi import Request
-
-_BUILDING_RE = re.compile(r'\b[Bb]uilding\s+(\d+)\b|\b[Bb]ldg\.?\s+(\d+)\b')
-_ROOM_RE     = re.compile(r'\b[Rr]oom\s+([\w-]+)\b')
-
-def get_building_coords(request: Request) -> dict:
-    return request.app.state.building_coords
-
-def extract_map_data(text: str, coords: dict) -> BuildingLocation | None:
-    m = _BUILDING_RE.search(text)
-    if not m:
-        return None
-    building_id = m.group(1) or m.group(2)
-    entry = coords.get(building_id)
-    if not entry:
-        return None
-    try:
-        room_m = _ROOM_RE.search(text)
-        return BuildingLocation(
-            building_id=building_id,
-            room=room_m.group(1) if room_m else None,
-            **entry,
-        )
-    except Exception:
-        return None  # malformed entry in coords file
+from src.api.building_coords import extract_map_data, get_building_coords
 
 # In the chat() handler, after run_tool_loop():
 async def chat(
@@ -184,15 +155,15 @@ Import `leaflet/dist/leaflet.css` at the top of `MapPanel.tsx` (or in the app's 
 
 | File | Change |
 |---|---|
-| `frontend/src/types.ts` | Add `BuildingLocation` interface; add `mapData?: BuildingLocation` to `Message` |
-| `frontend/src/api/client.ts` | Add `map_data?: BuildingLocation` field to frontend `ChatResponse` type |
-| `frontend/src/hooks/useChat.ts` | Attach `mapData` to assistant message; derive and return `lastMapData`; add `onCloseMap` callback |
-| `frontend/src/components/FloatingChatPanel.tsx` | Accept `lastMapData` + `onCloseMap` as props; render `<MapPanel>` left of chat when set |
+| `frontend/src/types.ts` | Add `BuildingLocation` interface; extend `ChatResponse` and `Message` |
+| `frontend/src/hooks/useChat.ts` | Attach `mapData` to assistant message; persist the currently visible map; add `onCloseMap` callback |
+| `frontend/src/components/FloatingChatPanel.tsx` | Accept `lastMapData` + `onCloseMap` as props; render `chat-panel-stack` shell |
+| `frontend/src/index.css` | Position `chat-panel-stack`; keep desktop side-by-side; stack panels on narrower viewports |
 | `frontend/src/api/mock.ts` | Add `map_data` to the location-based mock response so the panel is testable without the backend |
 
 ### State and data flow
 
-`lastMapData` is owned by `useChat`. It is derived from the last assistant `Message` where `mapData` is non-null, and updated on every new assistant message. `useChat` returns it alongside `messages`, `isLoading`, and `error`. The parent that renders `FloatingChatPanel` passes it down as a prop, along with an `onCloseMap` callback that clears it.
+`lastMapData` is owned by `useChat` as visible UI state. Assistant responses that include non-zero `map_data` replace it; assistant responses without `map_data` leave the current panel alone; `onCloseMap` clears it so stale map data does not reopen on later non-location answers. `useChat` returns it alongside `messages`, `isLoading`, and `error`. The parent that renders `FloatingChatPanel` passes it down as a prop, along with an `onCloseMap` callback that clears it.
 
 ```
 useChat returns: { messages, isLoading, error, lastMapData, onCloseMap, send }
@@ -211,6 +182,7 @@ App.tsx / parent destructures lastMapData, onCloseMap
 - Campus bounding box enforced: `map.setMaxBounds(CPP_BOUNDS)`, `minZoom` prevents zooming out past campus
 - On `building` prop mount/change: drops a custom SVG pin in brand green (`#0f5f4f`), opens a popup showing `label` + `room`, calls `map.flyTo([lat, lng], zoom, { animate: !prefersReducedMotion })` — animation respects `prefers-reduced-motion`
 - Close button calls `onClose` prop
+- Desktop layout keeps the map left of the chat; a narrower breakpoint stacks the map above the chat and both panels stretch to the available width
 
 ### Visual spec
 
@@ -231,7 +203,7 @@ Matches existing design system exactly:
 ## Accessibility
 
 - `MapPanel` root: `role="complementary"`, `aria-label="Campus map showing {label}"`
-- `aria-live="polite"` region in `FloatingChatPanel` announces `"Map updated: {label}"` on each new `lastMapData` — screen readers receive location without map interaction
+- `aria-live="polite"` region adjacent to `FloatingChatPanel` in the parent render tree announces `"Map updated: {label}"` on each new `lastMapData` — screen readers receive location without map interaction
 - Pin tooltip is keyboard-focusable via a visually-hidden `<button>` at the marker position
 - Close button labelled `aria-label="Close map panel"`
 - Map tiles degrade gracefully to grey placeholders if tiles fail to load; pin still renders
@@ -250,7 +222,7 @@ Matches existing design system exactly:
 | Multiple buildings in answer | First regex match wins (v0.1 deliberate simplification) |
 | `lat`/`lng` are `0, 0` on frontend | `useChat` checks `mapData.lat !== 0 \|\| mapData.lng !== 0` before setting `lastMapData`; panel does not open |
 | Tile network failure | Tiles show as grey placeholders; pin and popup still render |
-| Next answer has no building | Panel stays showing last known building; user closes manually |
+| Next answer has no building | If the panel is still open, it stays on the last known building; if the user already closed it, it stays closed |
 | Next answer has a different building | `lastMapData` updates, panel flies to new pin |
 
 ---
@@ -280,5 +252,6 @@ Matches existing design system exactly:
 5. Close map panel → chat returns to normal width
 6. DevTools: no console errors; confirm `aria-live` region fires on each location response
 7. Keyboard-only navigation: tab to pin tooltip, confirm readable; tab to close button, confirm dismissal works
-8. Enable OS reduced-motion setting → slide-in is instant, flyTo is instant
-9. With `VITE_USE_MOCK=true`: location mock response shows map panel correctly
+8. Resize to a narrow tablet/mobile viewport → map stacks above chat, no horizontal overflow
+9. Enable OS reduced-motion setting → slide-in is instant, flyTo is instant
+10. With `VITE_USE_MOCK=true`: location mock response shows map panel correctly

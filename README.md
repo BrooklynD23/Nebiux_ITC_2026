@@ -2,207 +2,86 @@
 
 Cal Poly Pomona campus assistant built for the MISSA ITC 2026 competition.
 
-Competition judges should start with:
+Start here:
 
 - [Judging and Deployment Guide](docs/judging-and-deployment.md)
-- [V0.1 Source of Truth](docs/v0.1/README.md)
+- [V0.1 Frozen Status](docs/v0.1/README.md)
 
-The repo is now standardized around a simple web-app architecture:
+This repo supports a single web-app deployment:
 
-- `frontend/`: React + Vite chat UI
+- `frontend/`: React + Vite UI
 - `src/`: FastAPI backend
-- `scripts/preprocess/`: offline corpus cleaning
-- `scripts/build_index.py`: offline chunk manifest + BM25 index build
+- `scripts/preprocess/`: offline corpus cleanup
+- `scripts/build_index.py`: offline index build
 - `data/`: generated artifacts only
 
-## Current Architecture
+## Supported Runs
 
-```
-Browser (React + Vite)
-        |
-        v
-FastAPI /chat API
-        |
-        +--> FastAPI /transcribe API (optional voice fallback)
-        |
-        v
-Precomputed retrieval artifacts in data/
-  - cleaned corpus
-  - metadata.json
-  - filter_report.json
-  - chunks.jsonl
-  - indexes/whoosh/
-```
+### Local development
 
-## Key Decisions
-
-- **Frontend**: keep `React + Vite` for V0.1. Do not migrate to Next.js during the competition build unless the team later needs SSR or multi-route product pages.
-- **Backend**: `Python 3.11 + FastAPI`.
-- **Backend routing**: deterministic pre-LLM support routing sends urgent CAPS, Student Health Services, University Police, and Care Center requests to cited CPP resources before the normal LLM path.
-- **Admin review**: privileged debug and admin review APIs are available without student accounts.
-- **Dev environment**: multi-container Docker Compose, not a single container. Python and Node have different toolchains and should stay isolated.
-- **RAG storage**: no local relational DB is required for the MVP. Use file-based artifacts plus persisted index directories.
-- **Runtime indexing**: preprocessing and index build are **offline / one-time startup** tasks, never per request.
-- **Hosted deployment**: primary recommendation is a single VM deployment using `docker-compose.hosted.yml`; Vercel is acceptable only for a static frontend split, not for the full stack.
-- **Voice accessibility**: microphone capture is a progressive enhancement. `POST /chat` stays text-only; hosted voice input requires HTTPS, while localhost remains valid for development.
-
-Detailed planning and rationale:
-
-- [Issue #18 architecture plan](docs/issue-18-setup-architecture.md)
-- [Judging and deployment guide](docs/judging-and-deployment.md)
-- [V0.1 source of truth](docs/v0.1/README.md)
-
-## Local Setup
-
-### Prerequisites
-
-- Docker Desktop for the containerized path
-- Or Python 3.11+ and Node 20+ for the manual path
-- The raw corpus under `dataset/itc2026_ai_corpus/`
-
-See [dataset/README.md](dataset/README.md) for corpus setup.
-
-### Option A: Docker Compose
-
-This is the standard contributor setup.
+Use Docker Compose for the normal contributor path:
 
 ```bash
 git clone <repo-url>
 cd Nebiux_ITC_2026
-
 cp .env.example .env
 docker compose up --build
 ```
 
-What happens on first boot:
+Install the raw CPP corpus under `dataset/itc2026_ai_corpus/` first. See [dataset/README.md](dataset/README.md).
 
-1. the backend verifies the raw corpus
-2. the preprocessing pipeline writes `data/cleaned/`, `data/metadata.json`, `data/filter_report.json`, `data/freshness_manifest.json`, and `data/conflict_review.md`
-3. the index build writes `data/chunks.jsonl` and `data/indexes/whoosh/`
-4. the frontend starts on `http://localhost:5173`
+The local UI comes up on `http://localhost:5173`.
 
-Subsequent boots reuse the generated `data/` artifacts.
+### Hosted deployment
 
-### Option B: Manual Local Run
+The judge-facing hosted setup uses `docker-compose.hosted.yml` on a Google Cloud VM instance:
 
 ```bash
-git clone <repo-url>
-cd Nebiux_ITC_2026
-
-python3 -m venv .venv
-source .venv/bin/activate
-python -m pip install --upgrade pip
-python -m pip install -e .[dev]
-
 cp .env.example .env
-python scripts/check_corpus.py
-python scripts/preprocess/run_pipeline.py
-python scripts/build_index.py
-python scripts/smoke_rag_pipeline.py
-
-uvicorn src.api.main:app --reload
+# Set CORS_ORIGINS, PUBLIC_API_BASE_URL, and any provider or voice settings
+docker compose -f docker-compose.hosted.yml up -d --build
 ```
 
-In a second terminal:
+That compose file exposes:
 
-```bash
-cd frontend
-npm install
-cp .env.example .env.local
-VITE_USE_MOCK=false npm run dev
-```
+- frontend on port `80`
+- backend on port `8000`
 
-Open `http://localhost:5173`.
+If you need HTTPS, terminate TLS outside the repo with a reverse proxy or load balancer in front of the VM. The repository does not bundle certificate management.
 
 ## Environment Variables
 
-### Backend
+Use [`.env.example`](.env.example) as the source of truth for backend settings.
 
-Use [`.env.example`](.env.example) as the source of truth.
+Required or commonly adjusted backend variables:
 
 - `LLM_PROVIDER=gemini|openai`
 - `GEMINI_API_KEY=...`
 - `OPENAI_API_KEY=...`
-- `ADMIN_API_TOKEN=...` for privileged admin review endpoints and `/chat` debug mode
-- `VOICE_TRANSCRIPTION_ENABLED=true`
-- `VOICE_TRANSCRIPTION_MODEL=gpt-4o-mini-transcribe`
-- `VOICE_TRANSCRIPTION_MAX_BYTES=5000000`
+- `ADMIN_API_TOKEN=...`
 - `CORS_ORIGINS=http://localhost:5173,http://127.0.0.1:5173`
 - `RAW_CORPUS_DIR=dataset/itc2026_ai_corpus`
 - `DATA_DIR=data`
 - `CONVERSATION_DB_PATH=data/conversations.db`
-- `LOG_LEVEL=INFO|DEBUG|WARNING|ERROR|CRITICAL`
 - `GROUNDING_MIN_TOP_SCORE=0.3`
+- `VOICE_TRANSCRIPTION_ENABLED=true`
+- `VOICE_TRANSCRIPTION_MODEL=gpt-4o-mini-transcribe`
+- `VOICE_TRANSCRIPTION_MAX_BYTES=5000000`
 
-### Frontend
-
-Use [`frontend/.env.example`](frontend/.env.example).
+Frontend variables come from [`frontend/.env.example`](frontend/.env.example):
 
 - `VITE_USE_MOCK=false`
-- `VITE_API_BASE_URL=` for hosted/static builds
-- `VITE_DEV_PROXY_TARGET=http://127.0.0.1:8000` for local Vite proxying
+- `VITE_API_BASE_URL=` for hosted or static builds
+- `VITE_DEV_PROXY_TARGET=http://127.0.0.1:8000` for local dev
 
-## LLM Provider Note
+Hosted build input:
 
-The target provider for the competition build is **Gemini 2.5 Flash**, with **OpenAI gpt-4o-mini** as fallback. The repository does **not** include an API key, and judges are **not expected** to receive one from the team.
+- `PUBLIC_API_BASE_URL=<public backend origin>` for `docker-compose.hosted.yml`
+  For example: `http://<vm-host-or-domain>:8000`, or the HTTPS API URL exposed by your reverse proxy.
 
-Current repo status matters here:
+## Notes
 
-- the provider configuration contract exists in [src/config.py](src/config.py)
-- the current `/chat` implementation uses provider tool calling, hybrid retrieval, conversation persistence, structured lifecycle logging, privileged debug mode, and a weak-retrieval refusal gate in [src/agent/tool_loop.py](src/agent/tool_loop.py)
-
-## Admin Review Backend
-
-The backend now supports a conversation-review path for the future admin dashboard without introducing student accounts:
-
-- `conversation_id` remains the review key for all chat history and admin inspection
-- `POST /chat` accepts `debug: true`, but only returns `debug_info` when the caller also presents `Authorization: Bearer <ADMIN_API_TOKEN>`
-- `GET /admin/conversations` returns recent conversation summaries for dashboard list views
-- `GET /admin/conversations/{conversation_id}` returns the persisted transcript plus turn-level review metadata
-- structured JSON logs are emitted through the Python `logging` module for query lifecycle debugging in local dev
-
-If you want live answers, set your own provider key in `.env`. For local UI-only work, the frontend can still run against mock mode.
-
-## Hosted Deployment
-
-Use the dedicated hosted compose file documented in [docs/judging-and-deployment.md](docs/judging-and-deployment.md):
-
-```bash
-cp .env.example .env
-# Set CORS_ORIGINS and PUBLIC_API_BASE_URL for your server
-docker compose -f docker-compose.hosted.yml up -d --build
-```
-
-Recommended hosting target: **Oracle Cloud single VM**.
-
-Fallback: **AWS EC2** using the same compose file.
-
-If you want the voice input path to work on the hosted demo, terminate TLS and serve the public app over `https://...`. Browsers allow microphone APIs on `localhost` during development, but not on a plain-HTTP public host.
-
-Not recommended as the primary host: **Vercel full-stack**, because the backend depends on persisted local artifacts and is not a good fit for serverless filesystem/runtime constraints.
-
-## Storage Decision
-
-No local relational DB is required for issue #18 or the MVP retrieval path.
-
-Use the filesystem for the four different storage concerns:
-
-1. **Source corpus**: `dataset/itc2026_ai_corpus/`
-2. **Page and chunk metadata**: `data/metadata.json`, `data/chunks.jsonl`
-3. **Persisted retrieval indexes**: `data/indexes/whoosh/` and reserved `data/indexes/chroma/`
-4. **Runtime state**: SQLite-backed conversation persistence is enabled through `src/conversation/store.py` with default DB path `data/conversations.db` (configurable via `CONVERSATION_DB_PATH`)
-
-## Repo Status
-
-The repo now includes:
-
-- offline preprocessing and index build
-- Whoosh + Chroma retrieval artifacts
-- provider-backed `search_corpus` tool calling
-- deterministic support routing for urgent student needs
-- SQLite-backed conversation persistence
-- SQLite-backed admin review metadata keyed by `conversation_id`
-- token-protected admin review endpoints
-- structured JSON lifecycle logging and privileged chat debug responses
-- voice accessibility with browser-native and transcription fallback paths
-- retrieval normalization, ambiguity handling, and weak-retrieval refusal gating
+- The repo does not include an API key.
+- Judges should supply their own provider key if they want live model responses.
+- Voice input works on `localhost` during development; on a hosted demo it requires HTTPS in front of the VM.
+- If the semantic retriever fails to initialize, the backend falls back to BM25-only instead of stopping the app.

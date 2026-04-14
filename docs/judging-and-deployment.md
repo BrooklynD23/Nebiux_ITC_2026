@@ -1,20 +1,23 @@
 # Judging and Deployment Guide
 
-This document is the judge-facing setup and deployment guide for the repository.
+This is the judge-facing runbook for the hosted demo.
 
-## What Judges Need To Know
+## What To Expect
 
-- The application is a **web app**, not a browser extension.
-- Voice input is a progressive enhancement and requires HTTPS on the hosted demo.
-- The repo is runnable locally from a fresh clone.
-- The team does **not** include an API key in the repo.
+- The project is a web app, not a browser extension.
+- The supported hosted target is a single Google Cloud VM instance running Docker Compose.
+- `docker-compose.hosted.yml` exposes the frontend on port `80` and the backend on port `8000`.
+- If you need HTTPS, terminate TLS outside the repo with a reverse proxy or load balancer in front of the VM. The repository does not manage certificates.
+- The repo does not ship an API key.
 - Planned provider:
   - primary: Gemini 2.5 Flash
   - fallback: OpenAI gpt-4o-mini
 
-## Local Clone-and-Run
+## Hosted VM Runbook
 
-### 1. Clone and prepare the corpus
+### 1. Prepare the VM
+
+Clone the repo and create the environment file:
 
 ```bash
 git clone <repo-url>
@@ -26,24 +29,43 @@ Install the raw CPP corpus under `dataset/itc2026_ai_corpus/`.
 
 Reference: [dataset/README.md](../dataset/README.md)
 
-### 2. Recommended local run
+### 2. Set the public-host values
+
+Set these before building:
+
+- `CORS_ORIGINS=<public frontend origin>`
+- `PUBLIC_API_BASE_URL=<public backend origin>`
+
+Examples:
+
+- direct VM exposure: `CORS_ORIGINS=http://<vm-host-or-domain>`
+- direct VM exposure: `PUBLIC_API_BASE_URL=http://<vm-host-or-domain>:8000`
+- external TLS termination: use the `https://` frontend and backend URLs that the proxy or load balancer presents to judges
+
+### 3. Start the stack
 
 ```bash
-docker compose up --build
+docker compose -f docker-compose.hosted.yml up -d --build
 ```
+
+### 4. Verify the app
 
 Open:
 
-- frontend: `http://localhost:5173`
-- backend health: `http://localhost:8000/health`
+- frontend: `http://<vm-host-or-domain>/`
+- backend health: `http://<vm-host-or-domain>:8000/health`
 
-### 3. What the backend generates automatically
+If a reverse proxy or load balancer terminates TLS, use the public `https://` URL that front door exposes instead.
 
-On first boot the backend will generate:
+## What The Backend Produces
+
+On first boot the backend generates:
 
 - `data/cleaned/`
 - `data/metadata.json`
 - `data/filter_report.json`
+- `data/freshness_manifest.json`
+- `data/conflict_review.md`
 - `data/chunks.jsonl`
 - `data/indexes/whoosh/`
 - `data/indexes/chroma/`
@@ -51,77 +73,25 @@ On first boot the backend will generate:
 
 If the semantic retriever cannot initialize, the app falls back to BM25-only and still serves `/chat`.
 
-## Hosted Deployment
-
-### Recommended judge-facing architecture
-
-- single VM
-- Docker Compose
-- HTTPS termination on port `443`
-- static frontend behind TLS
-- FastAPI backend on port `8000`
-
-Recommended host: **Oracle Cloud**
-
-Fallback host: **AWS EC2**
-
-### Deploy commands
-
-On the VM:
-
-```bash
-git clone <repo-url>
-cd Nebiux_ITC_2026
-cp .env.example .env
-```
-
-Set the following before building:
-
-- `CORS_ORIGINS=https://<server-domain>`
-- `PUBLIC_API_BASE_URL=https://<server-domain>:8000`
-
-Then run:
-
-```bash
-docker compose -f docker-compose.hosted.yml up -d --build
-```
-
-Judge-facing frontend:
-
-- `https://<server-domain>/`
-
-Backend health:
-
-- `https://<server-domain>:8000/health`
-
-The health response includes artifact readiness and the active retriever mode.
-
-## Voice Feature Notes
+## Voice Notes
 
 - `POST /chat` remains text-only.
-- `POST /transcribe` is used only for the browser recording fallback.
-- On `localhost`, browsers still allow microphone APIs for development.
-- On a public host, plain HTTP disables microphone capture even if the text chat still loads.
-
-## Why Vercel Is Not The Primary Recommendation
-
-Vercel is acceptable for a static frontend, but not as the primary full-stack host for this repo because:
-
-- the backend depends on persisted local retrieval artifacts
-- the backend is not designed as a serverless function package
-- local index files are a better fit for a VM than an ephemeral/serverless filesystem model
+- `POST /transcribe` supports the browser recording fallback.
+- On `localhost`, browsers allow microphone APIs for development.
+- On a public host, microphone capture requires HTTPS in front of the VM.
 
 ## API Key Expectations
 
 - No API key is committed to the repo.
 - Judges are not expected to receive a team API key.
-- When provider-backed answers are enabled, judges who want to test that path locally should supply their own `GEMINI_API_KEY` or `OPENAI_API_KEY` in `.env`.
+- If judges want to test live model responses locally, they should provide their own `GEMINI_API_KEY` or `OPENAI_API_KEY` in `.env`.
 
 ## Submission Checklist
 
-Before final competition submission, fill in the live demo URL in the submission materials and confirm:
+Before final competition submission, confirm:
 
-1. the frontend loads from a browser without local setup
-2. the hosted deployment is served over HTTPS so the microphone control is usable
-3. the VM can restart and rebuild artifacts from the repo + corpus mount
-4. the README and this file still match the deployed host shape
+1. The frontend loads from a browser without local setup.
+2. The hosted deployment uses the Google Cloud VM runbook above.
+3. The app is served over HTTPS if the demo needs microphone support.
+4. The VM can restart and rebuild artifacts from the repo plus the mounted corpus.
+5. The README and this guide still match the deployed host shape.

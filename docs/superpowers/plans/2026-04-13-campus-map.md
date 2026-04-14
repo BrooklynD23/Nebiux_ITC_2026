@@ -4,7 +4,7 @@
 
 **Goal:** When the Bronco Assistant answers a question that references a CPP building, a persistent side panel slides in to the left of the chat modal showing a greyscale campus map with a drop-pin marker on that building.
 
-**Architecture:** Backend regex-scans `answer_markdown` after `run_tool_loop()` returns, looks up the building number in a static JSON file, and attaches a `BuildingLocation` to `ChatResponse.map_data`. The frontend's `useChat` hook derives `lastMapData` from messages and exposes it alongside an `onCloseMap` callback. `App.tsx` passes both to `FloatingChatPanel`, which conditionally renders a new `MapPanel` (Leaflet + OSM tiles, CSS greyscale) to the left of the chat modal.
+**Architecture:** Backend regex-scans `answer_markdown` after `run_tool_loop()` returns, looks up the building number in `get_settings().data_dir / "building_coords.json"`, and attaches a `BuildingLocation` to `ChatResponse.map_data`. The frontend's `useChat` hook stores the currently visible map payload: location answers replace it, non-location answers leave it alone, and `onCloseMap` clears it so stale maps do not reopen. `FloatingChatPanel` renders a positioned `chat-panel-stack` shell that holds `MapPanel` and the chat modal side-by-side on desktop and stacks them on narrower viewports.
 
 **Tech Stack:** Python/FastAPI (backend), Pydantic v2, pytest, React 18/TypeScript (frontend), Leaflet.js, Vite
 
@@ -24,11 +24,12 @@
 | Create | `tests/test_building_detection.py` | Unit tests for extraction utility |
 | Modify | `tests/test_api.py` | Integration tests — `map_data` presence/absence in chat responses |
 | Modify | `frontend/src/types.ts` | Add `BuildingLocation`; extend `Message` and `ChatResponse` |
-| Modify | `frontend/src/hooks/useChat.ts` | Derive `lastMapData`; add `onCloseMap`; extend return type |
+| Modify | `frontend/src/hooks/useChat.ts` | Persist visible `lastMapData`; add `onCloseMap`; extend return type |
 | Modify | `frontend/src/api/mock.ts` | Add `LOCATION_RESPONSE` with `map_data` for location queries |
 | Create | `frontend/src/components/MapPanel.tsx` | Leaflet map panel component |
 | Create | `frontend/src/components/MapPanel.css` | Panel styles matching design system |
-| Modify | `frontend/src/components/FloatingChatPanel.tsx` | Accept `lastMapData`/`onCloseMap`; render `<MapPanel>` |
+| Modify | `frontend/src/components/FloatingChatPanel.tsx` | Accept `lastMapData`/`onCloseMap`; render `chat-panel-stack` shell |
+| Modify | `frontend/src/index.css` | Position `chat-panel-stack`; keep desktop side-by-side; add narrow viewport stacking rules |
 | Modify | `frontend/src/App.tsx` | Wire `lastMapData`/`onCloseMap` from `useChat`; add `aria-live` region |
 
 ---
@@ -241,14 +242,31 @@ git commit -m "feat: add BuildingLocation model and map_data field to ChatRespon
 Append to `tests/test_building_detection.py`:
 
 ```python
-"""Tests for extract_map_data utility."""
+"""Tests for building coordinate loading and extract_map_data utility."""
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
 import pytest
-from src.api.building_coords import extract_map_data
+
+from src.api.building_coords import extract_map_data, load_building_coords
 
 SAMPLE_COORDS = {
     "9":  {"lat": 34.0573, "lng": -117.8213, "name": "College of Engineering", "label": "Building 9"},
     "15": {"lat": 34.0581, "lng": -117.8198, "name": "University Library",     "label": "Building 15"},
 }
+
+
+def test_load_building_coords_from_explicit_path(tmp_path: Path) -> None:
+    coords_path = tmp_path / "building_coords.json"
+    coords_path.write_text(json.dumps(SAMPLE_COORDS), encoding="utf-8")
+
+    assert load_building_coords(coords_path) == SAMPLE_COORDS
+
+
+def test_load_building_coords_missing_file_returns_empty_dict(tmp_path: Path) -> None:
+    assert load_building_coords(tmp_path / "missing.json") == {}
 
 
 def test_extract_building_number() -> None:
@@ -312,37 +330,49 @@ import json
 import logging
 import re
 from pathlib import Path
+from typing import Any
 
 from fastapi import Request
 
 from src.models import BuildingLocation
+from src.settings import get_settings
 
 logger = logging.getLogger(__name__)
 
 _BUILDING_RE = re.compile(r'\b[Bb]uilding\s+(\d+)\b|\b[Bb]ldg\.?\s+(\d+)\b')
 _ROOM_RE = re.compile(r'\b[Rr]oom\s+([\w-]+)\b')
 
-COORDS_PATH = Path("data/building_coords.json")
 
-
-def load_building_coords() -> dict[str, dict]:
+def load_building_coords(
+    coords_path: Path | None = None,
+) -> dict[str, dict[str, Any]]:
     """Load building coordinates from JSON file.
 
-    Returns an empty dict (feature disabled) if the file is missing.
+    Reads from Settings.data_dir by default so DATA_DIR overrides keep working.
+    Returns an empty dict (feature disabled) if the file is missing or invalid.
     """
-    if not COORDS_PATH.exists():
-        logger.warning(
-            "data/building_coords.json not found — map panel feature disabled"
-        )
+    path = coords_path or (get_settings().data_dir / "building_coords.json")
+    if not path.exists():
+        logger.warning("%s not found — map panel feature disabled", path)
         return {}
+
     try:
-        return json.loads(COORDS_PATH.read_text(encoding="utf-8"))
+        payload = json.loads(path.read_text(encoding="utf-8"))
     except Exception:
-        logger.exception("Failed to load building_coords.json")
+        logger.exception("Failed to load %s", path)
         return {}
 
+    if not isinstance(payload, dict):
+        logger.warning("%s did not contain a top-level object", path)
+        return {}
 
-def extract_map_data(text: str, coords: dict[str, dict]) -> BuildingLocation | None:
+    return payload
+
+
+def extract_map_data(
+    text: str,
+    coords: dict[str, dict[str, Any]],
+) -> BuildingLocation | None:
     """Return a BuildingLocation if *text* mentions a known CPP building number.
 
     Returns None if no building is found, the building is unknown, or the
@@ -370,7 +400,7 @@ def extract_map_data(text: str, coords: dict[str, dict]) -> BuildingLocation | N
         return None
 
 
-def get_building_coords(request: Request) -> dict[str, dict]:
+def get_building_coords(request: Request) -> dict[str, dict[str, Any]]:
     """FastAPI dependency: return app-scoped building coords dict."""
     return getattr(request.app.state, "building_coords", {})
 ```
@@ -407,9 +437,7 @@ Append to the `TestChatEndpoint` class in `tests/test_api.py`:
     @pytest.mark.asyncio
     async def test_chat_map_data_present_for_location_query(self) -> None:
         """map_data is populated when the answer mentions a building."""
-        import json
-        from pathlib import Path
-        from unittest.mock import patch
+        from src.agent.tool_loop import ToolLoopExecution
 
         sample_coords = {
             "9": {
@@ -420,14 +448,11 @@ Append to the `TestChatEndpoint` class in `tests/test_api.py`:
             }
         }
 
-        # Fake LLM runner that always returns a building-mention answer
-        async def building_llm_runner(messages, tools, settings):
-            from src.models import ChatResponse, ChatStatus
-            return ChatResponse(
-                conversation_id="test-123",
-                status=ChatStatus.ANSWERED,
-                answer_markdown="The Dean's office is in Building 9, Room 227.",
-                citations=[],
+        # Match run_tool_loop()'s runner contract: (message, history, retriever)
+        async def building_llm_runner(message, history, retriever):
+            del message, history, retriever
+            return ToolLoopExecution(
+                answer_markdown="The Dean's office is in Building 9, Room 227."
             )
 
         response = await chat(
@@ -609,7 +634,7 @@ git commit -m "feat: add BuildingLocation type and mapData to Message"
 Replace the entire `useChat.ts` with the updated version:
 
 ```typescript
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useState } from 'react';
 import { sendMessage } from '../api/client';
 import type { BuildingLocation, Message } from '../types';
 
@@ -633,29 +658,14 @@ function createId(): string {
  *
  * Handles sending messages, tracking loading/error state,
  * and building the message history for display.
- * Also derives lastMapData from the most recent assistant message
- * that contains a building location.
+ * Also persists the currently visible map state separately from chat history.
  */
 export function useChat(): UseChatReturn {
   const [messages, setMessages] = useState<readonly Message[]>([]);
   const [conversationId, setConversationId] = useState<string | undefined>(undefined);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [mapDismissed, setMapDismissed] = useState(false);
-
-  // Derive lastMapData from the most recent assistant message with mapData.
-  // If the user has dismissed the panel (mapDismissed), return null.
-  const lastMapData = useMemo<BuildingLocation | null>(() => {
-    if (mapDismissed) return null;
-    const assistantMessages = messages.filter((m) => m.role === 'assistant');
-    for (let i = assistantMessages.length - 1; i >= 0; i--) {
-      const m = assistantMessages[i];
-      if (m.mapData && (m.mapData.lat !== 0 || m.mapData.lng !== 0)) {
-        return m.mapData;
-      }
-    }
-    return null;
-  }, [messages, mapDismissed]);
+  const [lastMapData, setLastMapData] = useState<BuildingLocation | null>(null);
 
   const send = useCallback(
     async (text: string): Promise<void> => {
@@ -663,8 +673,6 @@ export function useChat(): UseChatReturn {
       if (trimmed.length === 0) return;
 
       setError(null);
-      // Re-show map panel if new message arrives
-      setMapDismissed(false);
 
       const userMessage: Message = {
         id: createId(),
@@ -683,6 +691,18 @@ export function useChat(): UseChatReturn {
           setConversationId(response.conversation_id);
         }
 
+        const nextMapData =
+          response.map_data &&
+          (response.map_data.lat !== 0 || response.map_data.lng !== 0)
+            ? response.map_data
+            : null;
+
+        // Only location-bearing answers replace the visible map.
+        // Non-location answers leave the current panel alone.
+        if (nextMapData) {
+          setLastMapData(nextMapData);
+        }
+
         const assistantMessage: Message = {
           id: createId(),
           role: 'assistant',
@@ -690,7 +710,7 @@ export function useChat(): UseChatReturn {
           status: response.status,
           citations: response.citations,
           timestamp: Date.now(),
-          mapData: response.map_data ?? undefined,
+          mapData: nextMapData ?? undefined,
         };
 
         setMessages((prev) => [...prev, assistantMessage]);
@@ -721,11 +741,11 @@ export function useChat(): UseChatReturn {
     setConversationId(undefined);
     setIsLoading(false);
     setError(null);
-    setMapDismissed(false);
+    setLastMapData(null);
   }, []);
 
   const onCloseMap = useCallback((): void => {
-    setMapDismissed(true);
+    setLastMapData(null);
   }, []);
 
   return {
@@ -753,7 +773,7 @@ Expected: no errors
 
 ```bash
 git add frontend/src/hooks/useChat.ts
-git commit -m "feat: derive lastMapData in useChat and add onCloseMap"
+git commit -m "feat: persist visible map state in useChat"
 ```
 
 ---
@@ -847,6 +867,7 @@ Expected: `leaflet` and `@types/leaflet` appear in `package.json` dependencies.
 
 .map-panel {
   width: 26rem;
+  max-width: 100%;
   height: 34rem;
   border-radius: 1.5rem;
   background: var(--panel-strong);
@@ -992,6 +1013,22 @@ Expected: `leaflet` and `@types/leaflet` appear in `package.json` dependencies.
 
 .map-panel__directions:hover {
   background: #fff;
+}
+
+@media (max-width: 1100px) {
+  .map-panel {
+    width: 100%;
+    height: 18rem;
+  }
+
+  .map-panel__footer {
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+
+  .map-panel__footer-info {
+    flex-wrap: wrap;
+  }
 }
 ```
 
@@ -1193,8 +1230,9 @@ git commit -m "feat: add MapPanel component with Leaflet greyscale map and brand
 
 **Files:**
 - Modify: `frontend/src/components/FloatingChatPanel.tsx`
+- Modify: `frontend/src/index.css`
 
-- [ ] **Step 1: Update `FloatingChatPanel` to accept map props and render `MapPanel`**
+- [ ] **Step 1: Update `FloatingChatPanel` to accept map props and render `MapPanel` inside a positioned shell**
 
 Replace `frontend/src/components/FloatingChatPanel.tsx`:
 
@@ -1232,16 +1270,23 @@ export function FloatingChatPanel({
   }
 
   return (
-    <div style={{ display: 'flex', alignItems: 'flex-end', gap: '0.75rem' }}>
+    <div className="chat-panel-stack">
       {lastMapData && (
         <MapPanel building={lastMapData} onClose={onCloseMap} />
       )}
 
-      <div className="chat-modal" role="dialog" aria-modal="true">
+      <div
+        className="chat-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="bronco-assistant-title"
+      >
         <div className="chat-modal__header">
           <div>
             <p className="chat-modal__eyebrow">Student support popup</p>
-            <h3 className="chat-modal__title">Bronco Assistant</h3>
+            <h3 className="chat-modal__title" id="bronco-assistant-title">
+              Bronco Assistant
+            </h3>
           </div>
 
           <div className="chat-modal__actions">
@@ -1263,7 +1308,67 @@ export function FloatingChatPanel({
 }
 ```
 
-- [ ] **Step 2: Verify TypeScript compiles**
+- [ ] **Step 2: Update layout rules in `frontend/src/index.css`**
+
+Replace the existing `.chat-modal` positioning block and extend the responsive rules:
+
+```css
+.chat-panel-stack {
+  position: absolute;
+  right: 1.6rem;
+  bottom: 6.9rem;
+  display: flex;
+  align-items: flex-end;
+  gap: 0.75rem;
+  max-width: calc(100% - 3.2rem);
+}
+
+.chat-modal {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: min(28rem, calc(100vw - 3.2rem));
+  height: min(44rem, calc(100% - 3rem));
+  padding: 1rem;
+  box-shadow: 0 20px 60px rgba(13, 31, 27, 0.22);
+}
+
+@media (max-width: 1100px) {
+  .chat-panel-stack {
+    left: 1.6rem;
+    right: 1.6rem;
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .chat-modal {
+    width: 100%;
+  }
+}
+
+@media (max-width: 720px) {
+  .chat-panel-stack {
+    left: 1rem;
+    right: 1rem;
+    bottom: 6.4rem;
+    gap: 0.6rem;
+    max-width: none;
+  }
+
+  .chat-modal,
+  .chat-launcher {
+    right: auto;
+    width: 100%;
+  }
+
+  .chat-modal {
+    bottom: auto;
+    height: min(38rem, calc(100% - 2rem));
+  }
+}
+```
+
+- [ ] **Step 3: Verify TypeScript compiles**
 
 ```bash
 cd frontend && npx tsc --noEmit
@@ -1271,11 +1376,11 @@ cd frontend && npx tsc --noEmit
 
 Expected: no errors
 
-- [ ] **Step 3: Commit**
+- [ ] **Step 4: Commit**
 
 ```bash
-git add frontend/src/components/FloatingChatPanel.tsx
-git commit -m "feat: render MapPanel in FloatingChatPanel when lastMapData is set"
+git add frontend/src/components/FloatingChatPanel.tsx frontend/src/index.css
+git commit -m "feat: render MapPanel in responsive chat shell"
 ```
 
 ---
@@ -1405,13 +1510,22 @@ Tab through the UI with only the keyboard. Confirm:
 - Directions link is reachable
 - Screen reader (or DevTools accessibility tree) shows `aria-live` region updating on location answers
 
-- [ ] **Step 9: Reduced motion**
+- [ ] **Step 9: Responsive layout**
+
+Test at two viewport widths: ~1024px and ~390px.
+
+Expected:
+- At ~1024px, the map stacks above the chat modal and both panels remain fully visible
+- At ~390px, there is no horizontal overflow and the chat launcher remains reachable
+- Closing the map keeps the chat usable at both viewport sizes
+
+- [ ] **Step 10: Reduced motion**
 
 Enable OS reduced-motion setting (Windows: Settings → Ease of Access → Display → Show animations). Reload the page.
 
 Expected: map panel appears instantly (no slide animation), `flyTo` is instant.
 
-- [ ] **Step 10: Final commit**
+- [ ] **Step 11: Final commit**
 
 ```bash
 git add .

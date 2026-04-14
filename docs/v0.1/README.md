@@ -1,150 +1,43 @@
-# V0.1 Source of Truth
+# V0.1 Frozen Status
 
-Last updated: 2026-04-13
+Last updated: 2026-04-14
 
-This folder is the canonical planning workspace for V0.1. If a top-level V0.1 document disagrees with anything in this folder, this folder wins.
+This folder is the frozen handoff record for V0.1. It is no longer a sprint board.
 
-## Current Status
+## Final State
 
-- Current sprint: `Sprint 2 - Core End-to-End`
-- Project route: `Balanced core with one gated showcase lane`
-- Active showcase lane: `Hybrid voice accessibility with text-first fallback`
-- Team model: `3 contributors working in parallel after contracts freeze`
-- Core demo target: local web app with chat, one search tool, grounded answers, citations, and multi-turn conversation
-- Backend state: provider-backed `/chat`, SQLite conversation persistence, hybrid retrieval with BM25 fallback, query normalization, structured logging, token-gated debug info, admin review endpoints, grounding refusal gating, deterministic support routing, and a narrow `/transcribe` voice fallback route are wired
+- The project is a web app, not a Chrome extension.
+- The core stack is React + Vite frontend, FastAPI backend, and offline preprocessing/retrieval artifacts in `data/`.
+- The competition flow centers on a single chat route with grounded answers, citations, multi-turn conversation, and the existing voice fallback path.
+- The hosted demo path uses `docker-compose.hosted.yml` on a Google Cloud VM instance, with TLS handled outside the repo when HTTPS is required.
+- The preprocessing pipeline already writes the production artifacts used by the repo: `data/cleaned/`, `data/metadata.json`, `data/filter_report.json`, `data/freshness_manifest.json`, and `data/conflict_review.md`.
+- The issue #18 architecture decision is documented in [`docs/issue-18-setup-architecture.md`](../issue-18-setup-architecture.md).
 
-## Scope Guardrails
+## Frozen Scope
 
 Keep:
-- web app, not browser extension
-- single LLM with one `search_corpus` tool
-- preprocessing, retrieval, citations, refusal behavior, multi-turn chat
-- one clean chat route
 
-Defer unless Sprint 3 exit gate is already green:
-- analytics dashboard
-- extra routes beyond the core chat view
-- reranker if hybrid retrieval already meets target
-- more than one showcase feature
+- web app delivery
+- one `search_corpus` tool
+- preprocessing, retrieval, citations, refusal behavior, and multi-turn chat
+- offline index and artifact generation
 
-Cut for V0.1:
+Defer or cut for V0.1:
+
 - council-of-agents
 - persistent student profile
 - multilingual support beyond the English-first demo
 - mascot widget and extra surface area
 - specialized tools beyond `search_corpus`
 
-## Sprint Index
+## Handoff Notes
 
-- [Implementation Plan](./implementation-plan.md)
-- [Adversarial Review](./adversarial-review.md)
-- [Sprint 0 - Contracts](./sprint-0-contracts.md)
-- [Sprint 1 - Foundation](./sprint-1-foundation.md)
-- [Sprint 2 - Core E2E](./sprint-2-core-e2e.md)
-- [Sprint 3 - Hardening and Showcase](./sprint-3-hardening-showcase.md)
+- Local development is documented in [`README.md`](../../README.md).
+- Deployment guidance is documented in [`docs/judging-and-deployment.md`](../judging-and-deployment.md).
+- Shared repo instructions for agents live in [`CLAUDE.md`](../../CLAUDE.md) and [`AGENT.md`](../../AGENT.md).
 
-## Cross-Cutting Docs
+## Reference Paths
 
-- [Issue #18 - Setup Architecture](../issue-18-setup-architecture.md)
-- [Judging and Deployment Guide](../judging-and-deployment.md)
-
-## Branch Naming Convention
-
-Each contributor works on a branch prefixed with their lane letter:
-
-| Contributor | Branch pattern | Example |
-|---|---|---|
-| A | `feat/a-<topic>` | `feat/a-preprocessing`, `feat/a-bm25-index` |
-| B | `feat/b-<topic>` | `feat/b-api-skeleton`, `feat/b-tool-loop` |
-| C | `feat/c-<topic>` | `feat/c-chat-ui`, `feat/c-eval-golden-set` |
-
-Merge to `main` via pull request. Rebase before merging to keep history linear. Do not push directly to `main`.
-
-## Ownership
-
-### Contributor A
-- Primary lane: corpus preprocessing and retrieval
-- Likely paths: `dataset/`, `scripts/preprocess/`, `src/retrieval/`, `data/`
-
-### Contributor B
-- Primary lane: backend, tool loop, citations, conversation state
-- Likely paths: `src/api/`, `src/agent/`, `src/config.py`, `.env.example`
-- Current focus: keep the live tool loop, grounding gate, retriever fallback, and `/transcribe` voice fallback aligned with the competition prompt
-
-### Contributor C
-- Primary lane: frontend, thin eval set, planning status, demo-facing polish
-- Likely paths: `frontend/`, `data/eval/`, `scripts/eval/`, `docs/v0.1/`
-- Current focus: keep the chat UI stable while adding voice capture, transcript review, and reply playback polish
-
-### Shared File Ownership
-
-Files touched by multiple contributors have a single owner to prevent merge conflicts:
-
-| File | Owner | Others may |
-|---|---|---|
-| `pyproject.toml` | B | Request changes via PR comment |
-| `requirements.txt` | B | Request additions via PR comment |
-| `src/config.py` | B | Import from it, never edit directly |
-| `docs/v0.1/README.md` | C | Propose edits, C merges |
-| `.gitignore` | B | Propose additions via PR comment |
-| `CLAUDE.md`, `AGENT.md` | C | Propose edits, C merges |
-| `AGENTS.md` | C | Update only as a compatibility shim |
-
-If you need a change in a file you don't own, add a comment on your PR tagging the owner. The owner makes the edit in their own branch or approves yours.
-
-## Now
-
-### Contributor A
-- Freeze the preprocessing output contract:
-  - `data/cleaned/` output conventions
-  - `data/metadata.json` schema
-  - `data/filter_report.json` schema
-  - discard reasons and page-quality flags
-- Confirm the boilerplate strategy is structure-based, not fixed-line-based.
-
-### Contributor B
-- Freeze the API and tool contract:
-  - `POST /chat` request and response schema
-  - `search_corpus(query, top_k)` contract
-  - citation object shape
-  - refusal and error status shape
-- Lock the `conversation_id` behavior before frontend work starts.
-- Expose backend-only admin review contracts for the future dashboard without adding student accounts.
-
-### Contributor C
-- Create mock chat fixtures that match the frozen response contract.
-- Maintain the curated eval set in `data/eval/golden_set.json` and the stress/guardrail set in `data/eval/stress_guardrails.json`.
-- Keep this README current with sprint state, owners, blockers, and next work.
-
-### Shared (all contributors)
-- Agree on black/ruff/isort/pytest config (Contributor B commits `pyproject.toml`).
-- Agree on eslint/prettier config (Contributor C commits frontend config).
-- Confirm branch naming convention and shared file ownership rules above.
-- Verify clean runs of `black --check .` and `ruff check .` before declaring Sprint 0 done.
-
-## Next
-
-After Sprint 0 exits:
-- Contributor A moves to preprocessing implementation first, then BM25 retrieval.
-- Contributor B builds the FastAPI skeleton against the frozen contract and retrieval stub.
-- Contributor C builds the single-page React chat against mock responses first, then swaps to the live API in Sprint 2.
-
-## Blockers
-
-- No one should start irreversible implementation on `/chat`, citation rendering, or eval parsing until Sprint 0 contracts are frozen.
-- No showcase feature starts until Sprint 2 exit criteria pass.
-
-## Exit Gate for Current Sprint
-
-Sprint 0 is complete only when:
-- preprocessing outputs and discard taxonomy are documented
-- `/chat`, `search_corpus`, citation, and error schemas are documented
-- mock chat fixtures exist and match the schema
-- the curated eval set and stress/guardrail set exist
-- all three contributors agree that Sprint 1 work can proceed without schema churn
-
-## Update Rules
-
-- Any change to contracts, owners, or sprint order must update this file in the same change.
-- Only one sprint can be marked active at a time.
-- Each contributor should always have one `Now` item and one `Next` item listed here.
+- [Implementation plan](./implementation-plan.md)
+- [Issue #18 setup architecture](../issue-18-setup-architecture.md)
+- [Judging and deployment guide](../judging-and-deployment.md)

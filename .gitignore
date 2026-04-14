@@ -45,6 +45,8 @@ frontend/build/
 # OS
 .DS_Store
 Thumbs.db
+*Zone.Identifier
+.superpowers/
 
 # Testing
 .coverage

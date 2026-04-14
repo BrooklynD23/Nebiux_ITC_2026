@@ -154,20 +154,20 @@ Do **not** build indexes on every startup and never during a user request.
 |---|---|---|
 | Vercel | Reject as primary backend host | serverless filesystem/runtime model is a poor fit for persisted local retrieval artifacts |
 | AWS free tier | Accept as fallback | familiar and workable, but micro-tier memory is tighter for Python + local indexes |
-| Oracle Cloud | Recommend as primary | enough headroom for a single VM running Docker Compose with persisted local artifacts |
+| Google Cloud VM | Recommend as primary | enough headroom for a single VM running Docker Compose with persisted local artifacts |
 
 ### Final deployment recommendation
 
 Primary:
 
-- **single VM deployment**
+- **single Google Cloud VM deployment**
 - backend + static frontend on the same host
 - use [docker-compose.hosted.yml](../docker-compose.hosted.yml)
 
 Optional split:
 
 - Vercel static frontend
-- Oracle/AWS backend
+- Google Cloud VM or AWS backend
 
 Only use the split if the team specifically wants Vercel for the frontend URL. It adds CORS and deployment coordination that the team can avoid with a single VM.
 
@@ -211,7 +211,7 @@ Only use the split if the team specifically wants Vercel for the frontend URL. I
 
 - `docker compose up --build` is internally consistent
 - local contributor setup is documented with one standard path
-- hosted deployment path is documented and containerized
+- hosted Google Cloud VM deployment path is documented and containerized
 - backend CORS origins are env-driven
 - frontend mock/live behavior is explicit
 - retrieval artifacts have a concrete on-disk contract

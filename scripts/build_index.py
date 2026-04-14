@@ -22,8 +22,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-import chromadb
-from sentence_transformers import SentenceTransformer
 from whoosh import index
 from whoosh.fields import ID, STORED, TEXT, Schema
 
@@ -243,6 +241,22 @@ def build_whoosh_index(chunks: list[ChunkRecord], output_dir: Path) -> None:
 
 def build_chroma_index(chunks: list[ChunkRecord], chroma_dir: Path) -> None:
     """Embed chunks with sentence-transformers and persist into Chroma."""
+    try:
+        import chromadb
+    except ImportError as exc:  # pragma: no cover - depends on optional deps
+        raise RuntimeError(
+            "chromadb is required to build the semantic index. Install the "
+            "optional dependencies or skip the Chroma step."
+        ) from exc
+
+    try:
+        from sentence_transformers import SentenceTransformer
+    except ImportError as exc:  # pragma: no cover - depends on optional deps
+        raise RuntimeError(
+            "sentence_transformers is required to build the semantic index. "
+            "Install the optional dependencies or skip the Chroma step."
+        ) from exc
+
     chroma_dir.mkdir(parents=True, exist_ok=True)
 
     logger.info("Loading embedding model '%s'...", EMBEDDING_MODEL)
