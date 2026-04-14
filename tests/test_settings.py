@@ -44,6 +44,15 @@ def test_settings_builds_grounding_config() -> None:
     assert config.expected_top_k == 7
 
 
+def test_settings_parse_admin_token_and_log_level() -> None:
+    settings = Settings(
+        _env_file=None,
+        ADMIN_API_TOKEN="pilot-secret",
+        LOG_LEVEL="DEBUG",
+    )
+
+    assert settings.admin_api_token == "pilot-secret"
+    assert settings.log_level == "DEBUG"
 def test_settings_default_voice_transcription_values() -> None:
     settings = Settings(_env_file=None)
 

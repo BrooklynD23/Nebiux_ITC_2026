@@ -11,7 +11,7 @@ This folder is the canonical planning workspace for V0.1. If a top-level V0.1 do
 - Active showcase lane: `Hybrid voice accessibility with text-first fallback`
 - Team model: `3 contributors working in parallel after contracts freeze`
 - Core demo target: local web app with chat, one search tool, grounded answers, citations, and multi-turn conversation
-- Backend state: provider-backed `/chat`, SQLite conversation persistence, hybrid retrieval with BM25 fallback, query normalization, grounding refusal gating, and a narrow `/transcribe` voice fallback route are wired
+- Backend state: provider-backed `/chat`, SQLite conversation persistence, hybrid retrieval with BM25 fallback, query normalization, structured logging, token-gated debug info, admin review endpoints, grounding refusal gating, deterministic support routing, and a narrow `/transcribe` voice fallback route are wired
 
 ## Scope Guardrails
 
@@ -109,10 +109,11 @@ If you need a change in a file you don't own, add a comment on your PR tagging t
   - citation object shape
   - refusal and error status shape
 - Lock the `conversation_id` behavior before frontend work starts.
+- Expose backend-only admin review contracts for the future dashboard without adding student accounts.
 
 ### Contributor C
 - Create mock chat fixtures that match the frozen response contract.
-- Seed the first 12-15 golden cases across factual, follow-up, refusal, and adversarial categories.
+- Maintain the curated eval set in `data/eval/golden_set.json` and the stress/guardrail set in `data/eval/stress_guardrails.json`.
 - Keep this README current with sprint state, owners, blockers, and next work.
 
 ### Shared (all contributors)
@@ -139,7 +140,7 @@ Sprint 0 is complete only when:
 - preprocessing outputs and discard taxonomy are documented
 - `/chat`, `search_corpus`, citation, and error schemas are documented
 - mock chat fixtures exist and match the schema
-- the first 12-15 golden cases exist
+- the curated eval set and stress/guardrail set exist
 - all three contributors agree that Sprint 1 work can proceed without schema churn
 
 ## Update Rules

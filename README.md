@@ -38,6 +38,8 @@ Precomputed retrieval artifacts in data/
 
 - **Frontend**: keep `React + Vite` for V0.1. Do not migrate to Next.js during the competition build unless the team later needs SSR or multi-route product pages.
 - **Backend**: `Python 3.11 + FastAPI`.
+- **Backend routing**: deterministic pre-LLM support routing sends urgent CAPS, Student Health Services, University Police, and Care Center requests to cited CPP resources before the normal LLM path.
+- **Admin review**: privileged debug and admin review APIs are available without student accounts.
 - **Dev environment**: multi-container Docker Compose, not a single container. Python and Node have different toolchains and should stay isolated.
 - **RAG storage**: no local relational DB is required for the MVP. Use file-based artifacts plus persisted index directories.
 - **Runtime indexing**: preprocessing and index build are **offline / one-time startup** tasks, never per request.
@@ -121,6 +123,7 @@ Use [`.env.example`](.env.example) as the source of truth.
 - `LLM_PROVIDER=gemini|openai`
 - `GEMINI_API_KEY=...`
 - `OPENAI_API_KEY=...`
+- `ADMIN_API_TOKEN=...` for privileged admin review endpoints and `/chat` debug mode
 - `VOICE_TRANSCRIPTION_ENABLED=true`
 - `VOICE_TRANSCRIPTION_MODEL=gpt-4o-mini-transcribe`
 - `VOICE_TRANSCRIPTION_MAX_BYTES=5000000`
@@ -128,6 +131,7 @@ Use [`.env.example`](.env.example) as the source of truth.
 - `RAW_CORPUS_DIR=dataset/itc2026_ai_corpus`
 - `DATA_DIR=data`
 - `CONVERSATION_DB_PATH=data/conversations.db`
+- `LOG_LEVEL=INFO|DEBUG|WARNING|ERROR|CRITICAL`
 - `GROUNDING_MIN_TOP_SCORE=0.3`
 
 ### Frontend
@@ -145,7 +149,17 @@ The target provider for the competition build is **Gemini 2.5 Flash**, with **Op
 Current repo status matters here:
 
 - the provider configuration contract exists in [src/config.py](src/config.py)
-- the current `/chat` implementation uses provider tool calling, hybrid retrieval, conversation persistence, and a weak-retrieval refusal gate in [src/agent/tool_loop.py](src/agent/tool_loop.py)
+- the current `/chat` implementation uses provider tool calling, hybrid retrieval, conversation persistence, structured lifecycle logging, privileged debug mode, and a weak-retrieval refusal gate in [src/agent/tool_loop.py](src/agent/tool_loop.py)
+
+## Admin Review Backend
+
+The backend now supports a conversation-review path for the future admin dashboard without introducing student accounts:
+
+- `conversation_id` remains the review key for all chat history and admin inspection
+- `POST /chat` accepts `debug: true`, but only returns `debug_info` when the caller also presents `Authorization: Bearer <ADMIN_API_TOKEN>`
+- `GET /admin/conversations` returns recent conversation summaries for dashboard list views
+- `GET /admin/conversations/{conversation_id}` returns the persisted transcript plus turn-level review metadata
+- structured JSON logs are emitted through the Python `logging` module for query lifecycle debugging in local dev
 
 If you want live answers, set your own provider key in `.env`. For local UI-only work, the frontend can still run against mock mode.
 
@@ -185,5 +199,10 @@ The repo now includes:
 - offline preprocessing and index build
 - Whoosh + Chroma retrieval artifacts
 - provider-backed `search_corpus` tool calling
+- deterministic support routing for urgent student needs
 - SQLite-backed conversation persistence
+- SQLite-backed admin review metadata keyed by `conversation_id`
+- token-protected admin review endpoints
+- structured JSON lifecycle logging and privileged chat debug responses
+- voice accessibility with browser-native and transcription fallback paths
 - retrieval normalization, ambiguity handling, and weak-retrieval refusal gating

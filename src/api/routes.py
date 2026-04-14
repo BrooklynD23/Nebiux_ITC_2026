@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 
@@ -15,8 +16,10 @@ from src.audio_transcription import (
     normalize_audio_content_type,
 )
 from src.agent.tool_loop import run_tool_loop
+from src.api.auth import get_optional_admin_auth
 from src.conversation import ConversationStore
 from src.models import ChatRequest, ChatResponse, TranscriptionResponse
+from src.observability import log_event
 from src.settings import Settings, get_settings
 
 logger = logging.getLogger(__name__)
@@ -51,14 +54,30 @@ def get_audio_transcriber(request: Request) -> AudioTranscriber:
     return OpenAIAudioTranscriber()
 
 
-@router.post("/chat", response_model=ChatResponse)
+@router.post("/chat", response_model=ChatResponse, response_model_exclude_none=True)
 async def chat(
     request: ChatRequest,
     store: ConversationStore | None = Depends(get_conversation_store),
     retriever: object | None = Depends(get_retriever),
     llm_runner: object | None = Depends(get_llm_runner),
+    admin_debug_authorized: Annotated[bool, Depends(get_optional_admin_auth)] = False,
 ) -> ChatResponse:
     """Handle a user chat message and return a grounded answer."""
+    if request.debug and not admin_debug_authorized:
+        log_event(
+            logger,
+            logging.WARNING,
+            "chat.admin_debug_denied",
+            conversation_id=(
+                str(request.conversation_id)
+                if request.conversation_id is not None
+                else None
+            ),
+        )
+        raise HTTPException(
+            status_code=401,
+            detail="Admin authorization required for debug mode.",
+        )
     try:
         response = await run_tool_loop(
             message=request.message,
@@ -71,6 +90,8 @@ async def chat(
             max_turns=get_settings().conversation_history_max_turns,
             retriever=retriever,
             llm_runner=llm_runner,
+            debug_requested=request.debug,
+            debug_authorized=admin_debug_authorized,
         )
         return response
     except HTTPException:

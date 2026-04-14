@@ -49,6 +49,10 @@ class TestChatRequest:
         req = ChatRequest(message="What are the admission deadlines?")
         assert req.message == "What are the admission deadlines?"
 
+    def test_debug_defaults_to_false(self) -> None:
+        req = ChatRequest(message="Hello")
+        assert req.debug is False
+
 
 class TestChatResponse:
     """Validate ChatResponse shape matches the contract."""
@@ -76,6 +80,22 @@ class TestChatResponse:
             answer_markdown="Something went wrong.",
         )
         assert resp.citations == []
+
+    def test_debug_info_is_optional(self) -> None:
+        resp = ChatResponse(
+            conversation_id="abc-123",
+            status=ChatStatus.ANSWERED,
+            answer_markdown="Some answer",
+            debug_info={
+                "raw_query": "hello",
+                "normalized_query": "hello",
+                "retrieved_chunks": [],
+                "refusal_trigger": None,
+                "llm_prompt_tokens": 12,
+            },
+        )
+        assert resp.debug_info is not None
+        assert resp.debug_info.raw_query == "hello"
 
     def test_invalid_status_rejected(self) -> None:
         with pytest.raises(ValidationError):

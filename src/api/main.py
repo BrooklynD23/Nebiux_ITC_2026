@@ -14,8 +14,10 @@ from typing import AsyncIterator
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from src.api.admin import router as admin_router
 from src.api.routes import router
 from src.conversation import ConversationStore
+from src.observability import configure_logging
 from src.retrieval.interface import RetrieverBase
 from src.settings import get_settings
 
@@ -52,6 +54,7 @@ def _build_retriever() -> tuple[RetrieverBase | None, str]:
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Open the conversation store on startup and close it on shutdown."""
     cfg = get_settings()
+    configure_logging(cfg.log_level)
     store: ConversationStore | None = None
     retriever, retriever_mode = _build_retriever()
     try:
@@ -98,6 +101,7 @@ app.add_middleware(
 # Routes
 # ---------------------------------------------------------------------------
 app.include_router(router)
+app.include_router(admin_router)
 
 
 @app.get("/health")
