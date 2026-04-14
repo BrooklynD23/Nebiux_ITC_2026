@@ -22,6 +22,11 @@ export interface ChatResponse {
   readonly citations: readonly Citation[];
 }
 
+/** Response body from POST /transcribe. */
+export interface TranscriptionResponse {
+  readonly transcript: string;
+}
+
 /** Role of a message in the conversation. */
 export type MessageRole = 'user' | 'assistant';
 

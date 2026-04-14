@@ -31,6 +31,18 @@ class Settings(BaseSettings):
     llm_provider: str = Field(default="gemini", alias="LLM_PROVIDER")
     gemini_api_key: str | None = Field(default=None, alias="GEMINI_API_KEY")
     openai_api_key: str | None = Field(default=None, alias="OPENAI_API_KEY")
+    voice_transcription_enabled: bool = Field(
+        default=True,
+        alias="VOICE_TRANSCRIPTION_ENABLED",
+    )
+    voice_transcription_model: str = Field(
+        default="gpt-4o-mini-transcribe",
+        alias="VOICE_TRANSCRIPTION_MODEL",
+    )
+    voice_transcription_max_bytes: int = Field(
+        default=5_000_000,
+        alias="VOICE_TRANSCRIPTION_MAX_BYTES",
+    )
 
     host: str = Field(default="0.0.0.0", alias="HOST")
     port: int = Field(default=8000, alias="PORT")

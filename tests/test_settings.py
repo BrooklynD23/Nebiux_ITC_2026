@@ -42,3 +42,11 @@ def test_settings_builds_grounding_config() -> None:
     assert config.min_results == 2
     assert config.score_aggregation == "mean_top3"
     assert config.expected_top_k == 7
+
+
+def test_settings_default_voice_transcription_values() -> None:
+    settings = Settings(_env_file=None)
+
+    assert settings.voice_transcription_enabled is True
+    assert settings.voice_transcription_model == "gpt-4o-mini-transcribe"
+    assert settings.voice_transcription_max_bytes == 5_000_000

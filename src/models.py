@@ -107,6 +107,12 @@ class ChatResponse(BaseModel):
     )
 
 
+class TranscriptionResponse(BaseModel):
+    """Response payload for POST /transcribe."""
+
+    transcript: str = Field(..., description="Trimmed transcript text.")
+
+
 class SearchResult(BaseModel):
     """A single item returned by the search_corpus tool."""
 

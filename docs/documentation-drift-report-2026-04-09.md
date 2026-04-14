@@ -38,3 +38,16 @@ The repo instructions and architecture docs were out of sync with the current pr
 
 - Updated [`README.md`](../README.md) storage decision to reflect SQLite-backed conversation persistence and configuration via `CONVERSATION_DB_PATH`.
 - Updated [`README.md`](../README.md) repo status notes to include query normalization and ambiguous-query clarification behavior currently present in `src/agent/tool_loop.py`.
+
+## 2026-04-13 Judge Docs Follow-up
+
+### Drift Found
+
+1. The root `README.md` did not point judges at the canonical competition docs up front.
+2. The judge-facing deployment guide needed an explicit HTTPS note for voice accessibility so the hosted demo instructions matched the implemented UI behavior.
+
+### Fixes Applied
+
+- Updated [`README.md`](../README.md) to surface the judge entry points immediately.
+- Updated [`docs/judging-and-deployment.md`](./judging-and-deployment.md) to document the current judge-facing host shape and the HTTPS requirement for microphone access.
+- Kept [`docs/v0.1/README.md`](./v0.1/README.md) aligned as the active source of truth for the current sprint and showcase lane.

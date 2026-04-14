@@ -8,9 +8,10 @@ This folder is the canonical planning workspace for V0.1. If a top-level V0.1 do
 
 - Current sprint: `Sprint 2 - Core End-to-End`
 - Project route: `Balanced core with one gated showcase lane`
+- Active showcase lane: `Hybrid voice accessibility with text-first fallback`
 - Team model: `3 contributors working in parallel after contracts freeze`
 - Core demo target: local web app with chat, one search tool, grounded answers, citations, and multi-turn conversation
-- Backend state: provider-backed `/chat`, SQLite conversation persistence, hybrid retrieval with BM25 fallback, query normalization, and grounding refusal gating are wired
+- Backend state: provider-backed `/chat`, SQLite conversation persistence, hybrid retrieval with BM25 fallback, query normalization, grounding refusal gating, and a narrow `/transcribe` voice fallback route are wired
 
 ## Scope Guardrails
 
@@ -29,7 +30,7 @@ Defer unless Sprint 3 exit gate is already green:
 Cut for V0.1:
 - council-of-agents
 - persistent student profile
-- voice and multilingual support
+- multilingual support beyond the English-first demo
 - mascot widget and extra surface area
 - specialized tools beyond `search_corpus`
 
@@ -68,11 +69,12 @@ Merge to `main` via pull request. Rebase before merging to keep history linear. 
 ### Contributor B
 - Primary lane: backend, tool loop, citations, conversation state
 - Likely paths: `src/api/`, `src/agent/`, `src/config.py`, `.env.example`
-- Current focus: keep the live tool loop, grounding gate, citation parsing, and retriever fallback aligned with the competition prompt
+- Current focus: keep the live tool loop, grounding gate, retriever fallback, and `/transcribe` voice fallback aligned with the competition prompt
 
 ### Contributor C
 - Primary lane: frontend, thin eval set, planning status, demo-facing polish
 - Likely paths: `frontend/`, `data/eval/`, `scripts/eval/`, `docs/v0.1/`
+- Current focus: keep the chat UI stable while adding voice capture, transcript review, and reply playback polish
 
 ### Shared File Ownership
 

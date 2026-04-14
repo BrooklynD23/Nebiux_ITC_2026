@@ -1,4 +1,8 @@
-import type { ChatRequest, ChatResponse } from '../types';
+import type {
+  ChatRequest,
+  ChatResponse,
+  TranscriptionResponse,
+} from '../types';
 import { sendMockMessage } from './mock';
 
 /**
@@ -11,7 +15,7 @@ const USE_MOCK: boolean =
 
 /**
  * Base URL for the backend API.
- * Leave empty (default) for local dev — Vite proxy forwards /chat to localhost:8000.
+ * Leave empty (default) for local dev — Vite proxy forwards /chat and /transcribe.
  * Set to the full origin (e.g. https://api.example.com) for production / vite preview.
  */
 const API_BASE: string = (
@@ -49,4 +53,38 @@ export async function sendMessage(
 
   const data: ChatResponse = (await response.json()) as ChatResponse;
   return data;
+}
+
+export async function transcribeAudio(
+  audioBlob: Blob,
+  filename: string,
+): Promise<string> {
+  if (USE_MOCK) {
+    return 'Where is the registrar office?';
+  }
+
+  const body = new FormData();
+  body.append('audio', audioBlob, filename);
+
+  const response = await fetch(`${API_BASE}/transcribe`, {
+    method: 'POST',
+    body,
+  });
+
+  if (!response.ok) {
+    const fallback = `Voice input failed: ${response.status} ${response.statusText}`;
+    let detail = fallback;
+
+    try {
+      const payload = (await response.json()) as { detail?: string };
+      detail = payload.detail ?? fallback;
+    } catch {
+      detail = fallback;
+    }
+
+    throw new Error(detail);
+  }
+
+  const data = (await response.json()) as TranscriptionResponse;
+  return data.transcript;
 }

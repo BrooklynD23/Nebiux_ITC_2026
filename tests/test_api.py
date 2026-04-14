@@ -2,14 +2,18 @@
 
 from __future__ import annotations
 
+from io import BytesIO
 import uuid
 
 import pytest
+from fastapi import HTTPException
 from pydantic import ValidationError
+from starlette.datastructures import Headers, UploadFile
 
 from src.api.main import health
-from src.api.routes import chat
+from src.api.routes import chat, transcribe
 from src.models import ChatRequest
+from src.settings import Settings
 from tests.fakes import FakeRetriever, fake_llm_runner
 
 
@@ -114,3 +118,140 @@ class TestChatEndpoint:
     def test_chat_rejects_invalid_conversation_id(self) -> None:
         with pytest.raises(ValidationError):
             ChatRequest(message="Hello", conversation_id="not-a-uuid")
+
+
+def make_upload(
+    payload: bytes,
+    *,
+    filename: str = "question.webm",
+    content_type: str = "audio/webm",
+) -> UploadFile:
+    return UploadFile(
+        file=BytesIO(payload),
+        filename=filename,
+        headers=Headers({"content-type": content_type}),
+    )
+
+
+class FakeTranscriber:
+    def __init__(self, transcript: str = "Where is the registrar office?") -> None:
+        self.transcript = transcript
+        self.calls: list[tuple[str, str, bytes]] = []
+
+    async def transcribe(
+        self,
+        *,
+        filename: str,
+        content_type: str,
+        audio_bytes: bytes,
+    ) -> str:
+        self.calls.append((filename, content_type, audio_bytes))
+        return self.transcript
+
+
+class MissingConfigTranscriber:
+    async def transcribe(
+        self,
+        *,
+        filename: str,
+        content_type: str,
+        audio_bytes: bytes,
+    ) -> str:
+        del filename, content_type, audio_bytes
+        raise RuntimeError("OPENAI_API_KEY is not configured")
+
+
+class UpstreamFailureTranscriber:
+    async def transcribe(
+        self,
+        *,
+        filename: str,
+        content_type: str,
+        audio_bytes: bytes,
+    ) -> str:
+        del filename, content_type, audio_bytes
+        raise RuntimeError("provider timeout")
+
+
+class TestTranscriptionEndpoint:
+    @pytest.mark.asyncio
+    async def test_transcribe_returns_trimmed_transcript(self) -> None:
+        transcriber = FakeTranscriber("  Where is the registrar office?  ")
+
+        response = await transcribe(
+            audio=make_upload(b"voice-bytes"),
+            settings=Settings(_env_file=None),
+            transcriber=transcriber,
+        )
+
+        assert response == {"transcript": "Where is the registrar office?"}
+        assert transcriber.calls == [
+            ("question.webm", "audio/webm", b"voice-bytes"),
+        ]
+
+    @pytest.mark.asyncio
+    async def test_transcribe_rejects_empty_upload(self) -> None:
+        with pytest.raises(HTTPException) as exc_info:
+            await transcribe(
+                audio=make_upload(b""),
+                settings=Settings(_env_file=None),
+                transcriber=FakeTranscriber(),
+            )
+
+        assert exc_info.value.status_code == 400
+        assert "non-empty audio upload" in str(exc_info.value.detail)
+
+    @pytest.mark.asyncio
+    async def test_transcribe_rejects_unsupported_media_type(self) -> None:
+        with pytest.raises(HTTPException) as exc_info:
+            await transcribe(
+                audio=make_upload(
+                    b"voice-bytes",
+                    filename="question.txt",
+                    content_type="text/plain",
+                ),
+                settings=Settings(_env_file=None),
+                transcriber=FakeTranscriber(),
+            )
+
+        assert exc_info.value.status_code == 415
+        assert "Unsupported audio format" in str(exc_info.value.detail)
+
+    @pytest.mark.asyncio
+    async def test_transcribe_rejects_oversized_upload(self) -> None:
+        with pytest.raises(HTTPException) as exc_info:
+            await transcribe(
+                audio=make_upload(b"12345"),
+                settings=Settings(
+                    _env_file=None,
+                    VOICE_TRANSCRIPTION_MAX_BYTES=4,
+                ),
+                transcriber=FakeTranscriber(),
+            )
+
+        assert exc_info.value.status_code == 413
+        assert "too large" in str(exc_info.value.detail)
+
+    @pytest.mark.asyncio
+    async def test_transcribe_maps_missing_configuration_to_503(self) -> None:
+        with pytest.raises(HTTPException) as exc_info:
+            await transcribe(
+                audio=make_upload(b"voice-bytes"),
+                settings=Settings(_env_file=None),
+                transcriber=MissingConfigTranscriber(),
+            )
+
+        assert exc_info.value.status_code == 503
+        assert "unavailable" in str(exc_info.value.detail)
+
+    @pytest.mark.asyncio
+    async def test_transcribe_maps_upstream_failure_to_503(self) -> None:
+        with pytest.raises(HTTPException) as exc_info:
+            await transcribe(
+                audio=make_upload(b"voice-bytes"),
+                settings=Settings(_env_file=None),
+                transcriber=UpstreamFailureTranscriber(),
+            )
+
+        assert exc_info.value.status_code == 503
+        assert "Please try typing" in str(exc_info.value.detail)

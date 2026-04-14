@@ -2,6 +2,11 @@
 
 Cal Poly Pomona campus assistant built for the MISSA ITC 2026 competition.
 
+Competition judges should start with:
+
+- [Judging and Deployment Guide](docs/judging-and-deployment.md)
+- [V0.1 Source of Truth](docs/v0.1/README.md)
+
 The repo is now standardized around a simple web-app architecture:
 
 - `frontend/`: React + Vite chat UI
@@ -17,6 +22,8 @@ Browser (React + Vite)
         |
         v
 FastAPI /chat API
+        |
+        +--> FastAPI /transcribe API (optional voice fallback)
         |
         v
 Precomputed retrieval artifacts in data/
@@ -35,6 +42,7 @@ Precomputed retrieval artifacts in data/
 - **RAG storage**: no local relational DB is required for the MVP. Use file-based artifacts plus persisted index directories.
 - **Runtime indexing**: preprocessing and index build are **offline / one-time startup** tasks, never per request.
 - **Hosted deployment**: primary recommendation is a single VM deployment using `docker-compose.hosted.yml`; Vercel is acceptable only for a static frontend split, not for the full stack.
+- **Voice accessibility**: microphone capture is a progressive enhancement. `POST /chat` stays text-only; hosted voice input requires HTTPS, while localhost remains valid for development.
 
 Detailed planning and rationale:
 
@@ -88,6 +96,7 @@ cp .env.example .env
 python scripts/check_corpus.py
 python scripts/preprocess/run_pipeline.py
 python scripts/build_index.py
+python scripts/smoke_rag_pipeline.py
 
 uvicorn src.api.main:app --reload
 ```
@@ -112,6 +121,9 @@ Use [`.env.example`](.env.example) as the source of truth.
 - `LLM_PROVIDER=gemini|openai`
 - `GEMINI_API_KEY=...`
 - `OPENAI_API_KEY=...`
+- `VOICE_TRANSCRIPTION_ENABLED=true`
+- `VOICE_TRANSCRIPTION_MODEL=gpt-4o-mini-transcribe`
+- `VOICE_TRANSCRIPTION_MAX_BYTES=5000000`
 - `CORS_ORIGINS=http://localhost:5173,http://127.0.0.1:5173`
 - `RAW_CORPUS_DIR=dataset/itc2026_ai_corpus`
 - `DATA_DIR=data`
@@ -150,6 +162,8 @@ docker compose -f docker-compose.hosted.yml up -d --build
 Recommended hosting target: **Oracle Cloud single VM**.
 
 Fallback: **AWS EC2** using the same compose file.
+
+If you want the voice input path to work on the hosted demo, terminate TLS and serve the public app over `https://...`. Browsers allow microphone APIs on `localhost` during development, but not on a plain-HTTP public host.
 
 Not recommended as the primary host: **Vercel full-stack**, because the backend depends on persisted local artifacts and is not a good fit for serverless filesystem/runtime constraints.
 
