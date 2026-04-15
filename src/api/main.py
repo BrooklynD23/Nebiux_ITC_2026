@@ -18,6 +18,10 @@ from src.api.admin import router as admin_router
 from src.api.routes import router
 from src.conversation import ConversationStore
 from src.observability import configure_logging
+from src.retrieval.chroma_index import (
+    ChromaCollectionMissingError,
+    chroma_collection_exists,
+)
 from src.retrieval.interface import RetrieverBase
 from src.settings import get_settings
 
@@ -38,6 +42,8 @@ def _build_retriever() -> tuple[RetrieverBase | None, str]:
         from src.retrieval.hybrid_retriever import HybridRetriever
 
         return HybridRetriever(), "hybrid"
+    except ChromaCollectionMissingError as exc:
+        logger.info("%s Falling back to BM25-only mode.", exc)
     except Exception:
         logger.exception("Failed to initialize HybridRetriever")
 
@@ -114,7 +120,7 @@ async def health() -> dict[str, object]:
             "cleaned_ready": _dir_has_entries(str(settings.cleaned_dir)),
             "chunk_manifest_ready": settings.chunk_manifest_path.is_file(),
             "whoosh_ready": _dir_has_entries(str(settings.whoosh_dir)),
-            "chroma_ready": _dir_has_entries(str(settings.index_dir / "chroma")),
+            "chroma_ready": chroma_collection_exists(settings.index_dir / "chroma"),
         },
         "retriever_mode": retriever_mode,
     }
