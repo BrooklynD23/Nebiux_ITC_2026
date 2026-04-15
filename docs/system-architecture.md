@@ -4,7 +4,7 @@
 **Version:** V0.1 (Frozen Handoff)
 **Date:** 2026-04-14
 **Project:** Cal Poly Pomona Intelligent Campus Assistant
-** Team Members: Danny Tran, Russell Chung, Jeshua Cheng, Janice Lachan, Henry Le
+
 ---
 
 ## Table of Contents
@@ -26,12 +26,7 @@
 
 ### What It Does
 
-The CPP Campus Knowledge Agent is a Retrieval-Augmented Generation (RAG) chatbot scoped exclusively to Cal Poly Pomona. Students can ask questions about admissions, academics, campus services, and student life. The system retrieves relevant CPP documents from a preprocessed corpus, grounds responses in that evidence, and returns cited markdown answers.
-
-The current system already includes the frontend UI, backend API structure, LLM integration, and deployment scaffolding. The core requirement for a trustworthy campus assistant, however, is the retrieval and grounding pipeline. A functioning UI and model connection alone are not sufficient. The system must reliably retrieve, validate, and present accurate information from the dataset.
-
-
-
+The CPP Campus Knowledge Agent is a Retrieval-Augmented Generation (RAG) chatbot scoped exclusively to Cal Poly Pomona. Students can ask questions about admissions, academics, campus services, and student life. The system finds relevant documents from a preprocessed CPP corpus, grounds all answers in that evidence, and returns cited, markdown-formatted responses.
 
 ### Core Design Principles
 
@@ -350,29 +345,6 @@ class SearchResult:
     section: str | None # Section heading (debug only)
 ```
 
-## 4.7 Retrieval Quality & Tuning
-
-**Objective:**  
-Ensure the retrieval system consistently returns the most relevant and useful chunks for downstream LLM processing.
-
-**Tasks:**  
-- Evaluate retrieval performance using real user queries:
-  - Include messy, ambiguous, and shorthand inputs
-- Manually inspect top-k retrieved chunks:
-  - Verify relevance to the user query
-  - Ensure important information is present
-- Tune chunking strategy:
-  - Adjust chunk size to preserve context
-  - Ensure important information is not split across chunks
-- Improve keyword search performance:
-  - Refine BM25 fields (content, title, section)
-  - Adjust weighting of fields if necessary
-- Optimize hybrid retrieval behavior:
-  - Validate balance between keyword and semantic results
-  - Adjust RRF parameters if results are skewed
-- Remove redundant or low-value chunks:
-  - Ensure diversity in top-k results
-
 ---
 
 ## 5. AI Agent Loop
@@ -534,53 +506,6 @@ The grounding check is applied after the **first** retrieval call, before the LL
 | Loop termination | `finish_reason == "stop"` | No `function_call` parts in response |
 | Config key | `OPENAI_API_KEY` | `GEMINI_API_KEY` |
 
-### 5.6 Answer Quality Evaluation
-
-**Objective:**  
-Ensure the LLM generates clear, accurate, and well-grounded responses based on retrieved data.
-
-**Tasks:**
-- Evaluate generated answers for:
-  - Accuracy relative to retrieved chunks
-  - Clarity and readability
-  - Relevance to the user’s question
-- Verify citation correctness:
-  - Ensure all claims are supported by retrieved sources
-  - Confirm URLs and references are accurate
-- Check grounding adherence:
-  - Ensure responses do not include unsupported information
-- Improve prompt design:
-  - Reinforce instructions to use only provided context
-  - Encourage concise and structured responses
-- Identify and correct failure cases:
-  - Missing citations
-  - Overly verbose or unclear responses
-  - Misinterpretation of retrieved content
-
-### 5.7 Edge Case Handling & Robustness
-
-**Objective:**  
-Ensure the system performs reliably under real-world and non-ideal user inputs.
-
-**Tasks:**
-- Test system behavior with:
-  - Poor grammar and shorthand queries
-  - Ambiguous or underspecified questions
-  - Multi-intent queries
-- Validate query normalization:
-  - Ensure acronyms and shorthand are expanded correctly
-  - Confirm cleaned queries improve retrieval results
-- Evaluate ambiguity handling:
-  - Ensure unclear queries trigger clarification when appropriate
-- Test emotional and high-frustration inputs:
-  - Ensure system remains stable and provides helpful responses
-- Validate safety routing:
-  - Ensure emergency or sensitive queries bypass normal retrieval
-  - Confirm correct routing to support resources
-- Identify robustness gaps:
-  - Retrieval failures
-  - Incorrect intent interpretation
-  - Inconsistent responses
 ---
 
 ## 6. API Layer
@@ -925,31 +850,6 @@ pytest --cov=src --cov-report=term-missing
 - Validates that pipeline artifacts, retrievers, and LLM connectivity all work together
 - Run before deployment to confirm system health
 
-### 8.6 End-to-End Evaluation Loop
-
-**Objective:**  
-Establish a repeatable process for validating system performance across the full pipeline.
-
-**Tasks:**
-- Develop a standardized test set:
-  - 20–30 representative queries
-  - Include clean, messy, ambiguous, and edge-case inputs
-- Execute end-to-end tests:
-  - Run each query through the full system
-  - Capture retrieval results, responses, and citations
-- Record evaluation metrics:
-  - Correct vs incorrect answers
-  - Citation accuracy
-  - Refusal vs answer decisions
-- Analyze system behavior:
-  - Identify retrieval failures
-  - Detect hallucinations or unsupported answers
-  - Evaluate clarity and usefulness of responses
-- Iterate and improve:
-  - Adjust retrieval, grounding, and prompt logic based on findings
-- Maintain evaluation consistency:
-  - Re-run test set after major changes
-  - Track improvements over time
 ---
 
 ## 9. Deployment & Setup
