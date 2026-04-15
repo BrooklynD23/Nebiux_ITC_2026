@@ -581,9 +581,12 @@ def _get_default_retriever() -> RetrieverBase | None:
 
     try:
         from src.retrieval.hybrid_retriever import HybridRetriever
+        from src.retrieval.chroma_index import ChromaCollectionMissingError
 
         _default_retriever = HybridRetriever()
         return _default_retriever
+    except ChromaCollectionMissingError as exc:
+        logger.info("%s Falling back to BM25-only mode.", exc)
     except Exception:
         logger.exception("Failed to initialize HybridRetriever")
 

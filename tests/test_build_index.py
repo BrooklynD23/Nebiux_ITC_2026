@@ -72,7 +72,11 @@ Students must complete the A-G pattern and submit required transcripts.
         chunk_manifest_path=chunk_manifest_path,
         whoosh_dir=whoosh_dir,
     )
+    manifest = json.loads(
+        (output_dir / "indexes" / "manifest.json").read_text(encoding="utf-8")
+    )
 
     assert chunk_manifest_path.is_file()
     assert whoosh_dir.is_dir()
     assert (output_dir / "indexes" / "manifest.json").is_file()
+    assert manifest["retrieval_strategy"] == "precomputed-hybrid-bm25-chroma"

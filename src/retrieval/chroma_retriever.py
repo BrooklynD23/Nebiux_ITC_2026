@@ -4,17 +4,16 @@ from __future__ import annotations
 
 import logging
 
-import chromadb
 from sentence_transformers import SentenceTransformer
 
 from src.models import SearchResult
+from src.retrieval.chroma_index import get_chroma_collection
 from src.retrieval.interface import RetrieverBase
 from src.settings import get_settings
 
 logger = logging.getLogger(__name__)
 
 EMBEDDING_MODEL = "all-MiniLM-L6-v2"
-CHROMA_COLLECTION = "cpp_corpus"
 
 
 class ChromaRetriever(RetrieverBase):
@@ -27,8 +26,7 @@ class ChromaRetriever(RetrieverBase):
         logger.info("Loading embedding model '%s'...", EMBEDDING_MODEL)
         self._model = SentenceTransformer(EMBEDDING_MODEL)
 
-        client = chromadb.PersistentClient(path=str(chroma_dir))
-        self._collection = client.get_collection(CHROMA_COLLECTION)
+        self._collection = get_chroma_collection(chroma_dir)
         logger.info("ChromaRetriever ready (%d chunks indexed)", self._collection.count())
 
     async def search_corpus(self, query: str, top_k: int = 5) -> list[SearchResult]:

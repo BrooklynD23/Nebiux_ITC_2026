@@ -25,7 +25,7 @@ if [ "${AUTO_BUILD_ARTIFACTS:-true}" = "true" ]; then
         echo "[entrypoint] Cleaned corpus found — skipping preprocessing."
     fi
 
-    if [ ! -f "${DATA_DIR}/chunks.jsonl" ] || [ ! "$(ls -A "${INDEX_DIR}/whoosh" 2>/dev/null)" ]; then
+    if [ ! -f "${DATA_DIR}/chunks.jsonl" ] || [ ! "$(ls -A "${INDEX_DIR}/whoosh" 2>/dev/null)" ] || ! INDEX_DIR="$INDEX_DIR" python -c "import os, sys; from pathlib import Path; from src.retrieval.chroma_index import chroma_collection_exists; sys.exit(0 if chroma_collection_exists(Path(os.environ['INDEX_DIR']) / 'chroma') else 1)"; then
         echo "[entrypoint] Search artifacts not found — building chunk manifest and BM25 index..."
         python scripts/build_index.py \
             --cleaned-dir "$CLEANED_DIR" \
