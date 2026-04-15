@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from io import BytesIO
+from pathlib import Path
 import uuid
 
 import pytest
@@ -10,9 +11,10 @@ from fastapi import HTTPException
 from pydantic import ValidationError
 from starlette.datastructures import Headers, UploadFile
 
-from src.api.main import health
+from src.api import main as main_module
 from src.api.routes import chat, transcribe
 from src.models import ChatRequest
+from src.retrieval.chroma_index import ChromaCollectionMissingError
 from src.settings import Settings
 from tests.fakes import FakeRetriever, fake_llm_runner
 
@@ -22,8 +24,44 @@ class TestHealthEndpoint:
 
     @pytest.mark.asyncio
     async def test_health_returns_ok(self) -> None:
-        data = await health()
+        data = await main_module.health()
         assert data["status"] == "ok"
+
+    @pytest.mark.asyncio
+    async def test_health_reports_missing_chroma_collection(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setattr(main_module, "chroma_collection_exists", lambda _: False)
+
+        data = await main_module.health()
+
+        assert data["artifacts"]["chroma_ready"] is False
+
+
+def test_build_retriever_falls_back_to_bm25_when_chroma_collection_is_missing(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    from src.retrieval import hybrid_retriever, whoosh_retriever
+
+    class BrokenHybridRetriever:
+        def __init__(self) -> None:
+            raise ChromaCollectionMissingError(Path("data/indexes/chroma"))
+
+    class FakeWhooshRetriever:
+        pass
+
+    monkeypatch.setattr(hybrid_retriever, "HybridRetriever", BrokenHybridRetriever)
+    monkeypatch.setattr(whoosh_retriever, "WhooshRetriever", FakeWhooshRetriever)
+
+    with caplog.at_level("INFO"):
+        retriever, mode = main_module._build_retriever()
+
+    assert isinstance(retriever, FakeWhooshRetriever)
+    assert mode == "bm25"
+    assert "falling back to bm25-only mode" in caplog.text.lower()
+    assert "traceback" not in caplog.text.lower()
 
 
 class TestChatEndpoint:

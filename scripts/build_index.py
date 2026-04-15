@@ -3,11 +3,8 @@
 This script produces:
 - ``data/chunks.jsonl``: heading-aware chunk manifest
 - ``data/indexes/whoosh/``: persisted BM25 lexical index
+- ``data/indexes/chroma/``: persisted semantic index
 - ``data/indexes/manifest.json``: build summary and artifact pointers
-
-The Chroma/vector index path is intentionally reserved in the manifest but is
-not populated by issue #18. The goal of this issue is to standardize artifact
-layout and startup flow, not to finish the full hybrid retriever.
 """
 
 from __future__ import annotations
@@ -301,7 +298,7 @@ def write_manifest(
     whoosh_dir: Path,
 ) -> None:
     manifest = {
-        "retrieval_strategy": "precomputed-bm25-with-reserved-vector-path",
+        "retrieval_strategy": "precomputed-hybrid-bm25-chroma",
         "chunk_count": chunk_count,
         "chunk_manifest": str(chunk_manifest_path),
         "whoosh_index_dir": str(whoosh_dir),
