@@ -26,7 +26,7 @@ services:
       target: prod
       args:
         VITE_USE_MOCK: "false"
-        VITE_API_BASE_URL: ${PUBLIC_API_BASE_URL}
+        VITE_API_BASE_URL: ""
     depends_on:
       backend:
         condition: service_healthy
