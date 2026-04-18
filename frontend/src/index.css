@@ -1235,3 +1235,236 @@ img {
     font-size: 1.8rem;
   }
 }
+
+/* ── Admin: token modal ──────────────────────────────────────────────── */
+
+.token-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(3px);
+}
+
+.token-modal__card {
+  background: var(--surface, #fff);
+  border-radius: 1.25rem;
+  padding: 2rem;
+  width: min(400px, 90vw);
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.18);
+}
+
+.token-modal__card h3 {
+  margin: 0;
+  font-size: 1.15rem;
+}
+
+.token-modal__card p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.92rem;
+}
+
+.token-modal__input {
+  width: 100%;
+  padding: 0.7rem 0.9rem;
+  border: 1px solid rgba(0, 80, 48, 0.2);
+  border-radius: 0.6rem;
+  font-size: 0.95rem;
+  font-family: monospace;
+  outline: none;
+  box-sizing: border-box;
+}
+
+.token-modal__input:focus {
+  border-color: var(--cpp-green-soft, #5a9a72);
+  box-shadow: 0 0 0 2px rgba(90, 154, 114, 0.2);
+}
+
+.token-modal__error {
+  margin: 0;
+  font-size: 0.88rem;
+  color: #b53a1c;
+}
+
+.token-modal__actions {
+  display: flex;
+  gap: 0.6rem;
+}
+
+/* ── Admin: dashboard full-width layout ─────────────────────────────── */
+
+.dashboard__header-actions {
+  display: flex;
+  gap: 0.5rem;
+  flex-shrink: 0;
+}
+
+.dashboard__content--full {
+  grid-template-columns: 1fr;
+}
+
+.conv-empty {
+  padding: 1rem;
+  color: var(--muted);
+  font-size: 0.92rem;
+}
+
+/* ── Admin: conversation table rows ─────────────────────────────────── */
+
+.conv-row {
+  cursor: pointer;
+  transition: background 0.12s;
+}
+
+.conv-row:hover,
+.conv-row--expanded {
+  background: rgba(0, 80, 48, 0.04);
+}
+
+.conv-id {
+  font-family: monospace;
+  font-size: 0.82rem;
+  background: rgba(0, 80, 48, 0.07);
+  padding: 0.15em 0.4em;
+  border-radius: 0.3em;
+}
+
+.conv-preview {
+  max-width: 28ch;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.conv-expand-toggle {
+  text-align: right;
+  color: var(--muted);
+  font-size: 0.75rem;
+  user-select: none;
+}
+
+/* ── Admin: status badge ─────────────────────────────────────────────── */
+
+.status-badge {
+  display: inline-block;
+  padding: 0.2em 0.55em;
+  border-radius: 0.4em;
+  font-size: 0.8rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  background: rgba(0, 80, 48, 0.08);
+  color: #065e33;
+}
+
+.status-badge--answered {
+  background: rgba(22, 163, 74, 0.12);
+  color: #166534;
+}
+
+.status-badge--refused,
+.status-badge--not_found,
+.status-badge--error {
+  background: rgba(177, 73, 31, 0.1);
+  color: #8b3b1f;
+}
+
+/* ── Admin: expanded turn detail ─────────────────────────────────────── */
+
+.conv-detail-row td {
+  padding: 0;
+  border-bottom: 2px solid rgba(0, 80, 48, 0.12);
+}
+
+.conv-detail-state {
+  padding: 1rem;
+  color: var(--muted);
+  font-size: 0.92rem;
+}
+
+.conv-detail-state--error {
+  color: #b53a1c;
+}
+
+.conv-turns {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.conv-turn {
+  padding: 1.1rem 1.25rem;
+  border-top: 1px solid rgba(0, 80, 48, 0.08);
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.conv-turn:first-child {
+  border-top: none;
+}
+
+.conv-turn__badge {
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--cpp-green-soft, #5a9a72);
+}
+
+.conv-turn__block {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.conv-turn__label {
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.conv-turn__block p {
+  margin: 0;
+  font-size: 0.92rem;
+  line-height: 1.55;
+  white-space: pre-wrap;
+}
+
+.conv-turn__sources {
+  margin: 0;
+  padding: 0 0 0 1.1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  font-size: 0.88rem;
+}
+
+.conv-turn__sources a {
+  color: #0a5c38;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.conv-turn__snippet {
+  color: var(--muted);
+  font-size: 0.83rem;
+}
+
+.conv-turn__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  font-size: 0.85rem;
+  color: var(--muted);
+  padding-top: 0.25rem;
+  border-top: 1px dashed rgba(0, 80, 48, 0.1);
+}

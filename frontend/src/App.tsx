@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react';
 import campusBackground from './assets/CPP_BG.jpg';
 import cppLogo from './assets/cpp-logo.png';
+import { listConversations } from './api/admin';
+import type { ConversationSummary } from './api/admin';
+import { ConversationTable } from './components/ConversationTable';
 import { FloatingChatPanel } from './components/FloatingChatPanel';
 import { StatCard } from './components/StatCard';
-import { UserTable } from './components/UserTable';
-import { MOCK_ACTIVITY, MOCK_USERS } from './data/admin';
 import { useChat } from './hooks/useChat';
 
 type View = 'landing' | 'home' | 'admin';
@@ -83,14 +84,6 @@ function getPreviewFromUrl(url: string): ResourcePreview {
   );
 }
 
-function formatTimestamp(timestamp: number): string {
-  return new Intl.DateTimeFormat('en-US', {
-    month: 'short',
-    day: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-  }).format(timestamp);
-}
 
 export default function App(): JSX.Element {
   const [activeView, setActiveView] = useState<View>('landing');
@@ -98,46 +91,52 @@ export default function App(): JSX.Element {
   const [activePreview, setActivePreview] = useState<ResourcePreview | null>(null);
   const { messages, isLoading, error, send, resetConversation } = useChat();
 
+  // Admin state
+  const [adminToken, setAdminToken] = useState<string | null>(null);
+  const [showTokenModal, setShowTokenModal] = useState(false);
+  const [tokenInput, setTokenInput] = useState('');
+  const [tokenError, setTokenError] = useState<string | null>(null);
+  const [tokenLoading, setTokenLoading] = useState(false);
+  const [adminSummaries, setAdminSummaries] = useState<ConversationSummary[]>([]);
+  const [adminLoading, setAdminLoading] = useState(false);
+  const [adminError, setAdminError] = useState<string | null>(null);
+
   const userMessages = messages.filter((message) => message.role === 'user');
   const answeredMessages = messages.filter(
     (message) => message.role === 'assistant' && message.status === 'answered',
   );
-  const totalConversations = MOCK_USERS.reduce(
-    (total, user) => total + user.conversations,
-    0,
-  );
   const currentSessionQuestions = userMessages.length;
   const currentSessionAnswered = answeredMessages.length;
-  const dashboardUsers = [...MOCK_USERS];
 
-  if (currentSessionQuestions > 0) {
-    dashboardUsers.unshift({
-      id: 'session-now',
-      name: 'Current visitor',
-      role: 'Prospective student',
-      status: isLoading ? 'Active now' : 'Exploring',
-      conversations: 1,
-      lastQuestion:
-        userMessages[userMessages.length - 1]?.content ?? 'Started a session',
-      channel: 'Website popup',
-      satisfaction: currentSessionAnswered > 0 ? 'Positive' : 'Pending',
-    });
-  }
+  // Admin stats derived from real data
+  const adminTotalQuestions = adminSummaries.reduce((sum, s) => sum + s.turn_count, 0);
+  const adminAnsweredCount = adminSummaries.filter((s) => s.last_status === 'answered').length;
+  const adminRefusedCount = adminSummaries.filter(
+    (s) => s.last_status !== null && s.last_status !== 'answered',
+  ).length;
 
-  const activityFeed =
-    currentSessionQuestions > 0
-      ? [
-          {
-            id: 'session-feed',
-            label: 'Live website session',
-            detail: `${
-              userMessages[userMessages.length - 1]?.content ?? 'Chat opened'
-            }`,
-            time: formatTimestamp(Date.now()),
-          },
-          ...MOCK_ACTIVITY,
-        ]
-      : MOCK_ACTIVITY;
+  const adminStats = [
+    {
+      label: 'Total conversations',
+      value: `${adminSummaries.length}`,
+      description: 'All stored conversations in the backend.',
+    },
+    {
+      label: 'Questions asked',
+      value: `${adminTotalQuestions}`,
+      description: 'Sum of turns across all conversations.',
+    },
+    {
+      label: 'Answered',
+      value: `${adminAnsweredCount}`,
+      description: 'Conversations where last status is "answered".',
+    },
+    {
+      label: 'Refused / not found',
+      value: `${adminRefusedCount}`,
+      description: 'Conversations with a non-answered last status.',
+    },
+  ];
 
   const heroStats = [
     { label: 'Campus topics indexed', value: '1.2k+' },
@@ -167,29 +166,6 @@ export default function App(): JSX.Element {
     'Ask about admissions, financial aid, student life, or campus services.',
     'Browse answers and next steps in a way that feels welcoming and easy to follow.',
     'Reach out to university staff whenever your question needs a personal response.',
-  ];
-
-  const overviewStats = [
-    {
-      label: 'Tracked users',
-      value: `${dashboardUsers.length}`,
-      description: 'Visitors represented in the dashboard overview.',
-    },
-    {
-      label: 'Conversations',
-      value: `${totalConversations + (currentSessionQuestions > 0 ? 1 : 0)}`,
-      description: 'Sessions started across web, kiosk, and advisor channels.',
-    },
-    {
-      label: 'Questions answered',
-      value: `${53 + currentSessionAnswered}`,
-      description: 'Resolved prompts with citations and grounded answers.',
-    },
-    {
-      label: 'Live intent signals',
-      value: `${currentSessionQuestions}`,
-      description: 'Prompts collected from the current browser session.',
-    },
   ];
 
   useEffect(() => {
@@ -229,6 +205,49 @@ export default function App(): JSX.Element {
     void send(prompt);
   }
 
+  function handleAdminNavClick(): void {
+    if (adminToken) {
+      setActiveView('admin');
+      return;
+    }
+    setShowTokenModal(true);
+  }
+
+  async function handleTokenSubmit(e: React.FormEvent): Promise<void> {
+    e.preventDefault();
+    setTokenLoading(true);
+    setTokenError(null);
+    try {
+      const summaries = await listConversations(tokenInput);
+      setAdminToken(tokenInput);
+      setAdminSummaries(summaries);
+      setShowTokenModal(false);
+      setTokenInput('');
+      setActiveView('admin');
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : '';
+      setTokenError(
+        msg === '401' ? 'Invalid token.' : 'Could not connect to the server.',
+      );
+    } finally {
+      setTokenLoading(false);
+    }
+  }
+
+  async function refreshAdminData(): Promise<void> {
+    if (!adminToken) return;
+    setAdminLoading(true);
+    setAdminError(null);
+    try {
+      const summaries = await listConversations(adminToken);
+      setAdminSummaries(summaries);
+    } catch {
+      setAdminError('Failed to reload conversations.');
+    } finally {
+      setAdminLoading(false);
+    }
+  }
+
   return (
     <div className="site-shell">
       <div className="site-backdrop" />
@@ -251,7 +270,7 @@ export default function App(): JSX.Element {
         </button>
 
         <nav className="topbar__nav" aria-label="Primary navigation">
-         {/* <button
+          <button
             className={`topbar__link ${activeView === 'landing' ? 'is-active' : ''}`}
             onClick={() => setActiveView('landing')}
             type="button"
@@ -267,12 +286,11 @@ export default function App(): JSX.Element {
           </button>
           <button
             className={`topbar__link ${activeView === 'admin' ? 'is-active' : ''}`}
-            onClick={() => setActiveView('admin')}
+            onClick={handleAdminNavClick}
             type="button"
           >
             Admin
           </button>
-          */}
         </nav>
       </header>
 
@@ -518,19 +536,35 @@ export default function App(): JSX.Element {
             <div className="dashboard__header">
               <div>
                 <p className="section-kicker">Admin dashboard</p>
-                <h2>Overview of the people using the campus assistant.</h2>
+                <h2>Conversation review</h2>
               </div>
-              <button
-                className="button button--secondary"
-                onClick={() => setActiveView('home')}
-                type="button"
-              >
-                Return to home
-              </button>
+              <div className="dashboard__header-actions">
+                <button
+                  className="button button--secondary"
+                  disabled={adminLoading}
+                  onClick={() => void refreshAdminData()}
+                  type="button"
+                >
+                  {adminLoading ? 'Refreshing…' : 'Refresh'}
+                </button>
+                <button
+                  className="button button--secondary"
+                  onClick={() => setActiveView('home')}
+                  type="button"
+                >
+                  Return to home
+                </button>
+              </div>
             </div>
 
+            {adminError && (
+              <div className="error-banner" role="alert">
+                <span>{adminError}</span>
+              </div>
+            )}
+
             <div className="stats-grid">
-              {overviewStats.map((stat) => (
+              {adminStats.map((stat) => (
                 <StatCard
                   key={stat.label}
                   label={stat.label}
@@ -540,37 +574,74 @@ export default function App(): JSX.Element {
               ))}
             </div>
 
-            <div className="dashboard__content">
+            <div className="dashboard__content dashboard__content--full">
               <section className="dashboard-panel">
                 <div className="dashboard-panel__header">
-                  <h3>User overview</h3>
-                  <p>Live activity and visitor interest at a glance.</p>
+                  <h3>Conversations</h3>
+                  <p>{adminSummaries.length} total — click a row to expand</p>
                 </div>
-                <UserTable users={dashboardUsers} />
-              </section>
-
-              <section className="dashboard-panel">
-                <div className="dashboard-panel__header">
-                  <h3>Recent activity</h3>
-                  <p>Recent questions and engagement across the assistant.</p>
-                </div>
-
-                <div className="activity-feed">
-                  {activityFeed.map((item) => (
-                    <article className="activity-feed__item" key={item.id}>
-                      <div>
-                        <strong>{item.label}</strong>
-                        <p>{item.detail}</p>
-                      </div>
-                      <span>{item.time}</span>
-                    </article>
-                  ))}
-                </div>
+                {adminSummaries.length === 0 ? (
+                  <p className="conv-empty">No conversations found.</p>
+                ) : (
+                  <ConversationTable summaries={adminSummaries} token={adminToken!} />
+                )}
               </section>
             </div>
           </section>
         )}
       </main>
+
+      {showTokenModal && (
+        <div
+          className="token-modal"
+          onClick={() => {
+            setShowTokenModal(false);
+            setTokenError(null);
+            setTokenInput('');
+          }}
+        >
+          <div
+            className="token-modal__card"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3>Admin access</h3>
+            <p>Enter your API token to view the admin dashboard.</p>
+            <form onSubmit={(e) => void handleTokenSubmit(e)}>
+              <input
+                autoFocus
+                className="token-modal__input"
+                onChange={(e) => setTokenInput(e.target.value)}
+                placeholder="Bearer token"
+                type="password"
+                value={tokenInput}
+              />
+              {tokenError && (
+                <p className="token-modal__error">{tokenError}</p>
+              )}
+              <div className="token-modal__actions">
+                <button
+                  className="button button--primary"
+                  disabled={tokenLoading || !tokenInput}
+                  type="submit"
+                >
+                  {tokenLoading ? 'Verifying…' : 'Confirm'}
+                </button>
+                <button
+                  className="button button--secondary"
+                  onClick={() => {
+                    setShowTokenModal(false);
+                    setTokenError(null);
+                    setTokenInput('');
+                  }}
+                  type="button"
+                >
+                  Cancel
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
