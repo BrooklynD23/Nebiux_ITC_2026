@@ -48,6 +48,7 @@ class Settings(BaseSettings):
         default=5_000_000,
         alias="VOICE_TRANSCRIPTION_MAX_BYTES",
     )
+    retriever_mode: str = Field(default="auto", alias="RETRIEVER_MODE")
 
     host: str = Field(default="0.0.0.0", alias="HOST")
     port: int = Field(default=8000, alias="PORT")
@@ -108,6 +109,17 @@ class Settings(BaseSettings):
         if normalized not in allowed:
             raise ValueError(
                 f"LOG_LEVEL must be one of {sorted(allowed)}, got {normalized!r}"
+            )
+        return normalized
+
+    @field_validator("retriever_mode", mode="before")
+    @classmethod
+    def _normalize_retriever_mode(cls, value: str | None) -> str:
+        normalized = (value or "auto").strip().lower()
+        allowed = {"auto", "bm25"}
+        if normalized not in allowed:
+            raise ValueError(
+                f"RETRIEVER_MODE must be one of {sorted(allowed)}, got {normalized!r}"
             )
         return normalized
 

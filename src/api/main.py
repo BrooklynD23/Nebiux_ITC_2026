@@ -38,6 +38,15 @@ settings = get_settings()
 
 
 def _build_retriever() -> tuple[RetrieverBase | None, str]:
+    if get_settings().retriever_mode == "bm25":
+        try:
+            from src.retrieval.whoosh_retriever import WhooshRetriever
+
+            return WhooshRetriever(), "bm25"
+        except Exception:
+            logger.exception("Failed to initialize WhooshRetriever")
+            return None, "unavailable"
+
     try:
         from src.retrieval.hybrid_retriever import HybridRetriever
 
@@ -113,6 +122,7 @@ app.include_router(admin_router)
 @app.get("/health")
 async def health() -> dict[str, object]:
     """Liveness probe with basic artifact readiness details."""
+    settings = get_settings()
     retriever_mode = getattr(app.state, "retriever_mode", "unknown")
     return {
         "status": "ok",

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import campusBackground from './assets/CPP_BG.jpg';
 import cppLogo from './assets/cpp-logo.png';
-import { listConversations } from './api/admin';
+import { ApiError, listConversations } from './api/admin';
 import type { ConversationSummary } from './api/admin';
 import { ConversationTable } from './components/ConversationTable';
 import { FloatingChatPanel } from './components/FloatingChatPanel';
@@ -15,6 +15,9 @@ type ResourcePreview = {
   description: string;
   url: string;
 };
+
+const ADMIN_PATH = '/admin';
+const ADMIN_TOKEN_KEY = 'bronco_admin_token';
 
 const LIBRARY_PREVIEW: ResourcePreview = {
   title: 'Library Hours',
@@ -84,16 +87,40 @@ function getPreviewFromUrl(url: string): ResourcePreview {
   );
 }
 
+function pathForView(view: View): string {
+  return view === 'admin' ? ADMIN_PATH : '/';
+}
+
+function viewFromPath(pathname: string): View {
+  return pathname === ADMIN_PATH || pathname === `${ADMIN_PATH}/`
+    ? 'admin'
+    : 'landing';
+}
+
+function loadAdminToken(): string | null {
+  return window.sessionStorage.getItem(ADMIN_TOKEN_KEY);
+}
+
+function saveAdminToken(token: string): void {
+  window.sessionStorage.setItem(ADMIN_TOKEN_KEY, token);
+}
+
+function clearAdminTokenStorage(): void {
+  window.sessionStorage.removeItem(ADMIN_TOKEN_KEY);
+}
 
 export default function App(): JSX.Element {
-  const [activeView, setActiveView] = useState<View>('landing');
+  const [activeView, setActiveView] = useState<View>(() =>
+    viewFromPath(window.location.pathname),
+  );
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [activePreview, setActivePreview] = useState<ResourcePreview | null>(null);
   const { messages, isLoading, error, send, resetConversation } = useChat();
 
-  // Admin state
-  const [adminToken, setAdminToken] = useState<string | null>(null);
-  const [showTokenModal, setShowTokenModal] = useState(false);
+  const [adminToken, setAdminToken] = useState<string | null>(() => loadAdminToken());
+  const [showTokenModal, setShowTokenModal] = useState(
+    () => viewFromPath(window.location.pathname) === 'admin' && !loadAdminToken(),
+  );
   const [tokenInput, setTokenInput] = useState('');
   const [tokenError, setTokenError] = useState<string | null>(null);
   const [tokenLoading, setTokenLoading] = useState(false);
@@ -108,7 +135,6 @@ export default function App(): JSX.Element {
   const currentSessionQuestions = userMessages.length;
   const currentSessionAnswered = answeredMessages.length;
 
-  // Admin stats derived from real data
   const adminTotalQuestions = adminSummaries.reduce((sum, s) => sum + s.turn_count, 0);
   const adminAnsweredCount = adminSummaries.filter((s) => s.last_status === 'answered').length;
   const adminRefusedCount = adminSummaries.filter(
@@ -169,6 +195,19 @@ export default function App(): JSX.Element {
   ];
 
   useEffect(() => {
+    const syncFromLocation = () => {
+      const nextView = viewFromPath(window.location.pathname);
+      const storedToken = loadAdminToken();
+      setActiveView(nextView);
+      setAdminToken(storedToken);
+      setShowTokenModal(nextView === 'admin' && !storedToken);
+    };
+
+    window.addEventListener('popstate', syncFromLocation);
+    return () => window.removeEventListener('popstate', syncFromLocation);
+  }, []);
+
+  useEffect(() => {
     const latestAssistantMessage = [...messages]
       .reverse()
       .find(
@@ -194,6 +233,34 @@ export default function App(): JSX.Element {
     });
   }, [messages]);
 
+  useEffect(() => {
+    if (activeView !== 'admin') {
+      return;
+    }
+
+    if (!adminToken) {
+      setShowTokenModal(true);
+      return;
+    }
+
+    void refreshAdminData(adminToken);
+  }, [activeView, adminToken]);
+
+  function navigateToView(view: View): void {
+    const nextPath = pathForView(view);
+    if (window.location.pathname !== nextPath) {
+      window.history.pushState({}, '', nextPath);
+    }
+
+    setActiveView(view);
+    if (view === 'admin' && !adminToken) {
+      setShowTokenModal(true);
+      return;
+    }
+
+    setShowTokenModal(false);
+  }
+
   function handlePromptSelection(prompt: string): void {
     const preview = getPreviewForPrompt(prompt);
 
@@ -205,44 +272,64 @@ export default function App(): JSX.Element {
     void send(prompt);
   }
 
-  function handleAdminNavClick(): void {
-    if (adminToken) {
-      setActiveView('admin');
-      return;
+  function dismissTokenModal(): void {
+    setShowTokenModal(false);
+    setTokenError(null);
+    setTokenInput('');
+    if (activeView === 'admin' && !adminToken) {
+      navigateToView('home');
     }
-    setShowTokenModal(true);
   }
 
   async function handleTokenSubmit(e: React.FormEvent): Promise<void> {
     e.preventDefault();
+    const nextToken = tokenInput.trim();
+    if (!nextToken) {
+      return;
+    }
+
     setTokenLoading(true);
     setTokenError(null);
+
     try {
-      const summaries = await listConversations(tokenInput);
-      setAdminToken(tokenInput);
+      const summaries = await listConversations(nextToken);
+      saveAdminToken(nextToken);
+      setAdminToken(nextToken);
       setAdminSummaries(summaries);
       setShowTokenModal(false);
       setTokenInput('');
       setActiveView('admin');
+      if (window.location.pathname !== ADMIN_PATH) {
+        window.history.pushState({}, '', ADMIN_PATH);
+      }
     } catch (err) {
-      const msg = err instanceof Error ? err.message : '';
-      setTokenError(
-        msg === '401' ? 'Invalid token.' : 'Could not connect to the server.',
-      );
+      if (err instanceof ApiError && err.status === 401) {
+        setTokenError('Invalid token. Please check the admin token and try again.');
+      } else {
+        setTokenError(err instanceof Error ? err.message : 'Could not connect to the server.');
+      }
     } finally {
       setTokenLoading(false);
     }
   }
 
-  async function refreshAdminData(): Promise<void> {
-    if (!adminToken) return;
+  function handleAdminSignOut(): void {
+    clearAdminTokenStorage();
+    setAdminToken(null);
+    setAdminSummaries([]);
+    setAdminError(null);
+    navigateToView('home');
+  }
+
+  async function refreshAdminData(token = adminToken): Promise<void> {
+    if (!token) return;
     setAdminLoading(true);
     setAdminError(null);
     try {
-      const summaries = await listConversations(adminToken);
+      const summaries = await listConversations(token);
       setAdminSummaries(summaries);
-    } catch {
-      setAdminError('Failed to reload conversations.');
+    } catch (err) {
+      setAdminError(err instanceof Error ? err.message : 'Failed to reload conversations.');
     } finally {
       setAdminLoading(false);
     }
@@ -255,7 +342,7 @@ export default function App(): JSX.Element {
       <header className="topbar">
         <button
           className="brand-lockup brand-lockup--button"
-          onClick={() => setActiveView('landing')}
+          onClick={() => navigateToView('landing')}
           type="button"
         >
           <img
@@ -272,25 +359,30 @@ export default function App(): JSX.Element {
         <nav className="topbar__nav" aria-label="Primary navigation">
           <button
             className={`topbar__link ${activeView === 'landing' ? 'is-active' : ''}`}
-            onClick={() => setActiveView('landing')}
+            onClick={() => navigateToView('landing')}
             type="button"
           >
             Landing
           </button>
           <button
             className={`topbar__link ${activeView === 'home' ? 'is-active' : ''}`}
-            onClick={() => setActiveView('home')}
+            onClick={() => navigateToView('home')}
             type="button"
           >
             Home
           </button>
           <button
             className={`topbar__link ${activeView === 'admin' ? 'is-active' : ''}`}
-            onClick={handleAdminNavClick}
+            onClick={() => navigateToView('admin')}
             type="button"
           >
             Admin
           </button>
+          {adminToken && (
+            <button className="topbar__link" onClick={handleAdminSignOut} type="button">
+              Sign out
+            </button>
+          )}
         </nav>
       </header>
 
@@ -317,7 +409,7 @@ export default function App(): JSX.Element {
                 <div className="hero-panel__actions">
                   <button
                     className="button button--primary"
-                    onClick={() => setActiveView('home')}
+                    onClick={() => navigateToView('home')}
                     type="button"
                   >
                     Start asking
@@ -405,7 +497,7 @@ export default function App(): JSX.Element {
                 </a>
                 <button
                   className="button button--secondary"
-                  onClick={() => setActiveView('home')}
+                  onClick={() => navigateToView('home')}
                   type="button"
                 >
                   Ask Bronco Assistant first
@@ -541,7 +633,7 @@ export default function App(): JSX.Element {
               <div className="dashboard__header-actions">
                 <button
                   className="button button--secondary"
-                  disabled={adminLoading}
+                  disabled={adminLoading || !adminToken}
                   onClick={() => void refreshAdminData()}
                   type="button"
                 >
@@ -549,7 +641,7 @@ export default function App(): JSX.Element {
                 </button>
                 <button
                   className="button button--secondary"
-                  onClick={() => setActiveView('home')}
+                  onClick={() => navigateToView('home')}
                   type="button"
                 >
                   Return to home
@@ -563,47 +655,57 @@ export default function App(): JSX.Element {
               </div>
             )}
 
-            <div className="stats-grid">
-              {adminStats.map((stat) => (
-                <StatCard
-                  key={stat.label}
-                  label={stat.label}
-                  value={stat.value}
-                  description={stat.description}
-                />
-              ))}
-            </div>
-
-            <div className="dashboard__content dashboard__content--full">
-              <section className="dashboard-panel">
+            {!adminToken && (
+              <div className="dashboard-panel">
                 <div className="dashboard-panel__header">
-                  <h3>Conversations</h3>
-                  <p>{adminSummaries.length} total — click a row to expand</p>
+                  <h3>Admin authentication required</h3>
+                  <p>Sign in with the demo admin token to review stored conversations.</p>
                 </div>
-                {adminSummaries.length === 0 ? (
-                  <p className="conv-empty">No conversations found.</p>
-                ) : (
-                  <ConversationTable summaries={adminSummaries} token={adminToken!} />
-                )}
-              </section>
-            </div>
+                <button
+                  className="button button--primary"
+                  onClick={() => setShowTokenModal(true)}
+                  type="button"
+                >
+                  Open admin login
+                </button>
+              </div>
+            )}
+
+            {adminToken && (
+              <>
+                <div className="stats-grid">
+                  {adminStats.map((stat) => (
+                    <StatCard
+                      key={stat.label}
+                      label={stat.label}
+                      value={stat.value}
+                      description={stat.description}
+                    />
+                  ))}
+                </div>
+
+                <div className="dashboard__content dashboard__content--full">
+                  <section className="dashboard-panel">
+                    <div className="dashboard-panel__header">
+                      <h3>Conversations</h3>
+                      <p>{adminSummaries.length} total — click a row to expand</p>
+                    </div>
+                    {adminSummaries.length === 0 ? (
+                      <p className="conv-empty">No conversations found.</p>
+                    ) : (
+                      <ConversationTable summaries={adminSummaries} token={adminToken} />
+                    )}
+                  </section>
+                </div>
+              </>
+            )}
           </section>
         )}
       </main>
 
       {showTokenModal && (
-        <div
-          className="token-modal"
-          onClick={() => {
-            setShowTokenModal(false);
-            setTokenError(null);
-            setTokenInput('');
-          }}
-        >
-          <div
-            className="token-modal__card"
-            onClick={(e) => e.stopPropagation()}
-          >
+        <div className="token-modal" onClick={dismissTokenModal}>
+          <div className="token-modal__card" onClick={(e) => e.stopPropagation()}>
             <h3>Admin access</h3>
             <p>Enter your API token to view the admin dashboard.</p>
             <form onSubmit={(e) => void handleTokenSubmit(e)}>
@@ -621,18 +723,14 @@ export default function App(): JSX.Element {
               <div className="token-modal__actions">
                 <button
                   className="button button--primary"
-                  disabled={tokenLoading || !tokenInput}
+                  disabled={tokenLoading || !tokenInput.trim()}
                   type="submit"
                 >
                   {tokenLoading ? 'Verifying…' : 'Confirm'}
                 </button>
                 <button
                   className="button button--secondary"
-                  onClick={() => {
-                    setShowTokenModal(false);
-                    setTokenError(null);
-                    setTokenInput('');
-                  }}
+                  onClick={dismissTokenModal}
                   type="button"
                 >
                   Cancel

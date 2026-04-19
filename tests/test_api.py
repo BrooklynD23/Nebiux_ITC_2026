@@ -64,6 +64,27 @@ def test_build_retriever_falls_back_to_bm25_when_chroma_collection_is_missing(
     assert "traceback" not in caplog.text.lower()
 
 
+def test_build_retriever_respects_explicit_bm25_mode(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from src.retrieval import whoosh_retriever
+
+    class FakeWhooshRetriever:
+        pass
+
+    monkeypatch.setattr(
+        main_module,
+        "get_settings",
+        lambda: type("SettingsStub", (), {"retriever_mode": "bm25"})(),
+    )
+    monkeypatch.setattr(whoosh_retriever, "WhooshRetriever", FakeWhooshRetriever)
+
+    retriever, mode = main_module._build_retriever()
+
+    assert isinstance(retriever, FakeWhooshRetriever)
+    assert mode == "bm25"
+
+
 class TestChatEndpoint:
     """Verify the chat handler returns valid contract shapes."""
 

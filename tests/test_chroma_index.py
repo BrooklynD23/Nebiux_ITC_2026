@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import chromadb
 import pytest
 
 from src.retrieval.chroma_index import (
@@ -13,6 +12,8 @@ from src.retrieval.chroma_index import (
     chroma_collection_exists,
     get_chroma_collection,
 )
+
+chromadb = pytest.importorskip("chromadb")
 
 
 def test_chroma_collection_exists_is_false_for_empty_index(tmp_path: Path) -> None:

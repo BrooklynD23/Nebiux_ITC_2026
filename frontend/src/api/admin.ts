@@ -1,7 +1,34 @@
-const BASE = (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? 'http://localhost:8000';
+const BASE = (
+  (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? ''
+).replace(/\/$/, '');
 
 function headers(token: string): HeadersInit {
   return { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` };
+}
+
+export class ApiError extends Error {
+  readonly status: number;
+
+  constructor(status: number, detail: string) {
+    super(detail);
+    this.name = 'ApiError';
+    this.status = status;
+  }
+}
+
+async function parseError(response: Response): Promise<never> {
+  let detail = `API error: ${response.status} ${response.statusText}`;
+
+  try {
+    const body = (await response.json()) as { detail?: string };
+    if (body.detail) {
+      detail = body.detail;
+    }
+  } catch {
+    // keep fallback detail
+  }
+
+  throw new ApiError(response.status, detail);
 }
 
 export interface ConversationSummary {
@@ -71,7 +98,7 @@ export async function listConversations(
     `${BASE}/admin/conversations?limit=${limit}&offset=${offset}`,
     { headers: headers(token) },
   );
-  if (!res.ok) throw new Error(`${res.status}`);
+  if (!res.ok) await parseError(res);
   return res.json() as Promise<ConversationSummary[]>;
 }
 
@@ -82,6 +109,6 @@ export async function getConversation(
   const res = await fetch(`${BASE}/admin/conversations/${conversationId}`, {
     headers: headers(token),
   });
-  if (!res.ok) throw new Error(`${res.status}`);
+  if (!res.ok) await parseError(res);
   return res.json() as Promise<ConversationDetail>;
 }

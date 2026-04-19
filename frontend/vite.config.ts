@@ -15,6 +15,14 @@ export default defineConfig(({ mode }) => {
           target: proxyTarget,
           changeOrigin: true,
         },
+        '/admin/conversations': {
+          target: proxyTarget,
+          changeOrigin: true,
+        },
+        '/admin/feedback': {
+          target: proxyTarget,
+          changeOrigin: true,
+        },
         '/transcribe': {
           target: proxyTarget,
           changeOrigin: true,

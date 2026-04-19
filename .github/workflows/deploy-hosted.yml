@@ -1,0 +1,21 @@
+name: Deploy Hosted Demo
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy to VM over SSH
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.VM_HOST }}
+          username: ${{ secrets.VM_USER }}
+          key: ${{ secrets.VM_SSH_KEY }}
+          script: |
+            export APP_DIR="${{ secrets.VM_APP_DIR }}"
+            cd "$APP_DIR"
+            ./scripts/deploy_hosted.sh

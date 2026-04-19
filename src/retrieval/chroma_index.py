@@ -3,9 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-
-import chromadb
-from chromadb.errors import NotFoundError
+from typing import Any
 
 CHROMA_COLLECTION = "cpp_corpus"
 
@@ -26,15 +24,23 @@ class ChromaCollectionMissingError(RuntimeError):
         self.collection_name = collection_name
 
 
+def _load_chromadb() -> tuple[Any, type[Exception]]:
+    import chromadb
+    from chromadb.errors import NotFoundError
+
+    return chromadb, NotFoundError
+
+
 def get_chroma_collection(
     chroma_dir: Path,
     collection_name: str = CHROMA_COLLECTION,
 ):
     """Return the persisted Chroma collection or raise a clear missing error."""
+    chromadb, not_found_error = _load_chromadb()
     client = chromadb.PersistentClient(path=str(chroma_dir))
     try:
         return client.get_collection(collection_name)
-    except NotFoundError as exc:
+    except not_found_error as exc:
         raise ChromaCollectionMissingError(chroma_dir, collection_name) from exc
 
 
@@ -45,6 +51,8 @@ def chroma_collection_exists(
     """Return whether the persisted Chroma collection is available."""
     try:
         get_chroma_collection(chroma_dir, collection_name)
+    except ImportError:
+        return False
     except ChromaCollectionMissingError:
         return False
     except Exception:

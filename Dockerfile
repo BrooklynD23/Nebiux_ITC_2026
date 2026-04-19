@@ -4,6 +4,8 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1
 
+ARG INSTALL_SEMANTIC=true
+
 WORKDIR /app
 
 # System deps needed by sentence-transformers and Whoosh
@@ -14,7 +16,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Install Python dependencies first (layer caches unless project metadata changes)
 COPY pyproject.toml README.md ./
 COPY src/ ./src/
-RUN pip install --upgrade pip && pip install ".[dev]"
+RUN pip install --upgrade pip && \
+    if [ "$INSTALL_SEMANTIC" = "true" ]; then \
+        pip install ".[semantic]"; \
+    else \
+        pip install "."; \
+    fi
 
 COPY scripts/ ./scripts/
 

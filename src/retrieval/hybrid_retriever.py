@@ -5,7 +5,6 @@ from __future__ import annotations
 import logging
 
 from src.models import SearchResult
-from src.retrieval.chroma_retriever import ChromaRetriever
 from src.retrieval.interface import RetrieverBase
 from src.retrieval.whoosh_retriever import WhooshRetriever
 
@@ -19,6 +18,8 @@ class HybridRetriever(RetrieverBase):
     """Combine BM25 and semantic results using Reciprocal Rank Fusion."""
 
     def __init__(self) -> None:
+        from src.retrieval.chroma_retriever import ChromaRetriever
+
         self._bm25 = WhooshRetriever()
         self._semantic = ChromaRetriever()
         logger.info("HybridRetriever ready")

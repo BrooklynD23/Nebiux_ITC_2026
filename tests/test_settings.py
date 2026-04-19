@@ -53,6 +53,14 @@ def test_settings_parse_admin_token_and_log_level() -> None:
 
     assert settings.admin_api_token == "pilot-secret"
     assert settings.log_level == "DEBUG"
+
+
+def test_settings_parse_retriever_mode() -> None:
+    settings = Settings(_env_file=None, RETRIEVER_MODE="bm25")
+
+    assert settings.retriever_mode == "bm25"
+
+
 def test_settings_default_voice_transcription_values() -> None:
     settings = Settings(_env_file=None)
 
