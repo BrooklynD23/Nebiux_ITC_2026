@@ -79,6 +79,9 @@ def test_list_admin_conversations_returns_summaries(
 
     assert len(summaries) == 1
     assert summaries[0].conversation_id == cid
+    assert summaries[0].last_query_latency_ms is not None
+    assert summaries[0].last_query_latency_ms >= 0
+    assert summaries[0].is_dangerous_query is False
 
 
 def test_get_admin_conversation_returns_detail(

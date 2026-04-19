@@ -38,6 +38,8 @@ export interface ConversationSummary {
   readonly turn_count: number;
   readonly last_status: string | null;
   readonly last_user_message_preview: string | null;
+  readonly last_query_latency_ms: number | null;
+  readonly is_dangerous_query: boolean;
 }
 
 export interface Citation {

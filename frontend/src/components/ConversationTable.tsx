@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { Fragment, useState } from 'react';
 import { getConversation } from '../api/admin';
 import type { ConversationDetail, ConversationSummary } from '../api/admin';
 
@@ -16,6 +16,12 @@ function formatDate(iso: string): string {
     hour: 'numeric',
     minute: '2-digit',
   }).format(new Date(iso));
+}
+
+function formatLatency(ms: number | null): string {
+  if (ms == null) return '—';
+  if (ms < 1000) return `${ms} ms`;
+  return `${(ms / 1000).toFixed(2)} s`;
 }
 
 export function ConversationTable({ summaries, token }: Props): JSX.Element {
@@ -47,6 +53,8 @@ export function ConversationTable({ summaries, token }: Props): JSX.Element {
             <th>Started</th>
             <th>Turns</th>
             <th>Last status</th>
+            <th>Latency</th>
+            <th>Safety</th>
             <th>Last question</th>
             <th aria-label="Expand" />
           </tr>
@@ -56,9 +64,8 @@ export function ConversationTable({ summaries, token }: Props): JSX.Element {
             const isExpanded = expandedId === s.conversation_id;
             const detail = detailCache[s.conversation_id];
             return (
-              <>
+              <Fragment key={s.conversation_id}>
                 <tr
-                  key={s.conversation_id}
                   className={`conv-row${isExpanded ? ' conv-row--expanded' : ''}`}
                   onClick={() => void handleRowClick(s.conversation_id)}
                 >
@@ -74,13 +81,27 @@ export function ConversationTable({ summaries, token }: Props): JSX.Element {
                       {s.last_status ?? '—'}
                     </span>
                   </td>
+                  <td>
+                    <span className="metric-badge">{formatLatency(s.last_query_latency_ms)}</span>
+                  </td>
+                  <td>
+                    <span
+                      className={
+                        s.is_dangerous_query
+                          ? 'safety-tag safety-tag--danger'
+                          : 'safety-tag safety-tag--clear'
+                      }
+                    >
+                      {s.is_dangerous_query ? 'Danger' : 'Clear'}
+                    </span>
+                  </td>
                   <td className="conv-preview">{s.last_user_message_preview ?? '—'}</td>
                   <td className="conv-expand-toggle">{isExpanded ? '▲' : '▼'}</td>
                 </tr>
 
                 {isExpanded && (
-                  <tr key={`${s.conversation_id}-detail`} className="conv-detail-row">
-                    <td colSpan={6}>
+                  <tr className="conv-detail-row">
+                    <td colSpan={8}>
                       {detail === 'loading' && (
                         <p className="conv-detail-state">Loading…</p>
                       )}
@@ -152,7 +173,7 @@ export function ConversationTable({ summaries, token }: Props): JSX.Element {
                     </td>
                   </tr>
                 )}
-              </>
+              </Fragment>
             );
           })}
         </tbody>

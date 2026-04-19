@@ -1306,6 +1306,30 @@ img {
   flex-shrink: 0;
 }
 
+.dashboard-safety-tag {
+  display: inline-flex;
+  align-items: center;
+  margin-top: 0.55rem;
+  padding: 0.22rem 0.58rem;
+  border-radius: 999px;
+  font-size: 0.76rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.dashboard-safety-tag--danger {
+  color: #9a3412;
+  background: rgba(194, 65, 12, 0.16);
+  border: 1px solid rgba(194, 65, 12, 0.24);
+}
+
+.dashboard-safety-tag--clear {
+  color: #166534;
+  background: rgba(22, 163, 74, 0.14);
+  border: 1px solid rgba(22, 163, 74, 0.22);
+}
+
 .dashboard__content--full {
   grid-template-columns: 1fr;
 }
@@ -1373,6 +1397,37 @@ img {
 .status-badge--error {
   background: rgba(177, 73, 31, 0.1);
   color: #8b3b1f;
+}
+
+.metric-badge {
+  display: inline-block;
+  padding: 0.2em 0.55em;
+  border-radius: 0.4em;
+  font-size: 0.8rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: #14532d;
+  background: rgba(21, 128, 61, 0.12);
+}
+
+.safety-tag {
+  display: inline-block;
+  padding: 0.2em 0.55em;
+  border-radius: 0.4em;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.safety-tag--danger {
+  color: #9a3412;
+  background: rgba(194, 65, 12, 0.16);
+}
+
+.safety-tag--clear {
+  color: #166534;
+  background: rgba(22, 163, 74, 0.14);
 }
 
 /* ── Admin: expanded turn detail ─────────────────────────────────────── */

@@ -9,6 +9,7 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
+from src.agent.support_routing import classify_support_route
 from src.conversation.models import (
     ConversationDetail,
     ConversationSummary,
@@ -202,7 +203,22 @@ class ConversationStore:
                           AND messages.role = 'user'
                         ORDER BY messages.id DESC
                         LIMIT 1
-                    ) AS last_user_message_preview
+                    ) AS last_user_message_preview,
+                    (
+                        SELECT CAST(
+                            (julianday(assistant_message.created_at) - julianday(user_message.created_at))
+                            * 86400000
+                            AS INTEGER
+                        )
+                        FROM turn_reviews
+                        JOIN messages AS user_message
+                            ON user_message.id = turn_reviews.user_message_id
+                        JOIN messages AS assistant_message
+                            ON assistant_message.id = turn_reviews.assistant_message_id
+                        WHERE turn_reviews.conversation_id = conversations.id
+                        ORDER BY turn_reviews.id DESC
+                        LIMIT 1
+                    ) AS last_query_latency_ms
                 FROM conversations
                 LEFT JOIN turn_reviews
                     ON turn_reviews.conversation_id = conversations.id
@@ -220,6 +236,14 @@ class ConversationStore:
                 turn_count=row["turn_count"],
                 last_status=row["last_status"],
                 last_user_message_preview=row["last_user_message_preview"],
+                last_query_latency_ms=max(0, row["last_query_latency_ms"])
+                if row["last_query_latency_ms"] is not None
+                else None,
+                is_dangerous_query=(
+                    classify_support_route(row["last_user_message_preview"]) is not None
+                    if row["last_user_message_preview"]
+                    else False
+                ),
             )
             for row in rows
         ]

@@ -49,6 +49,8 @@ class ConversationSummary:
     turn_count: int
     last_status: str | None
     last_user_message_preview: str | None
+    last_query_latency_ms: int | None
+    is_dangerous_query: bool
 
 
 @dataclass(frozen=True)

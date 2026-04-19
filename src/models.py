@@ -175,6 +175,15 @@ class AdminConversationSummary(BaseModel):
         default=None,
         description="Preview of the most recent user message.",
     )
+    last_query_latency_ms: int | None = Field(
+        default=None,
+        ge=0,
+        description="Latency of the most recent completed query in milliseconds.",
+    )
+    is_dangerous_query: bool = Field(
+        default=False,
+        description="Whether the most recent user query was classified as dangerous/distress.",
+    )
 
 
 class AdminConversationDetail(BaseModel):

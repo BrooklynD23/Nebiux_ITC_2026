@@ -166,6 +166,43 @@ def test_append_turn_review_persists_and_lists_conversation_summary(
     assert summary.turn_count == 1
     assert summary.last_status == "answered"
     assert "parking" in summary.last_user_message_preview.lower()
+    assert summary.last_query_latency_ms is not None
+    assert summary.last_query_latency_ms >= 0
+    assert summary.is_dangerous_query is False
+
+
+def test_list_conversation_summaries_flags_dangerous_latest_query(
+    store: ConversationStore,
+) -> None:
+    cid = store.get_or_create(None)
+    user = store.append_user_message(
+        cid,
+        "I am in emotional distress and need help right now.",
+    )
+    assistant = store.append_assistant_message(
+        cid,
+        "Please contact support resources.",
+        [],
+        "answered",
+    )
+    store.append_turn_review(
+        conversation_id=cid,
+        user_message_id=user.id,
+        assistant_message_id=assistant.id,
+        raw_query=user.content,
+        normalized_query="i am in emotional distress and need help right now",
+        status="answered",
+        refusal_trigger=None,
+        debug_requested=False,
+        debug_authorized=False,
+        llm_prompt_tokens=5,
+        retrieved_chunks=[],
+    )
+
+    summaries = store.list_conversation_summaries(limit=10, offset=0)
+
+    assert len(summaries) == 1
+    assert summaries[0].is_dangerous_query is True
 
 
 def test_get_conversation_detail_returns_turn_review_metadata(

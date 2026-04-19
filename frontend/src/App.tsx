@@ -109,6 +109,12 @@ function clearAdminTokenStorage(): void {
   window.sessionStorage.removeItem(ADMIN_TOKEN_KEY);
 }
 
+function formatLatency(ms: number | null): string {
+  if (ms == null) return '—';
+  if (ms < 1000) return `${ms} ms`;
+  return `${(ms / 1000).toFixed(2)} s`;
+}
+
 export default function App(): JSX.Element {
   const [activeView, setActiveView] = useState<View>(() =>
     viewFromPath(window.location.pathname),
@@ -140,6 +146,17 @@ export default function App(): JSX.Element {
   const adminRefusedCount = adminSummaries.filter(
     (s) => s.last_status !== null && s.last_status !== 'answered',
   ).length;
+  const recentLatencies = adminSummaries
+    .map((s) => s.last_query_latency_ms)
+    .filter((ms): ms is number => ms != null);
+  const avgRecentLatencyMs =
+    recentLatencies.length > 0
+      ? Math.round(
+        recentLatencies.reduce((sum, ms) => sum + ms, 0) / recentLatencies.length,
+      )
+      : null;
+  const latestLatencyMs = adminSummaries.find((s) => s.last_query_latency_ms != null)?.last_query_latency_ms ?? null;
+  const hasDangerInRecentQueries = adminSummaries.some((s) => s.is_dangerous_query);
 
   const adminStats = [
     {
@@ -161,6 +178,16 @@ export default function App(): JSX.Element {
       label: 'Refused / not found',
       value: `${adminRefusedCount}`,
       description: 'Conversations with a non-answered last status.',
+    },
+    {
+      label: 'Avg response latency',
+      value: formatLatency(avgRecentLatencyMs),
+      description: `Average across ${recentLatencies.length} recent queries.`,
+    },
+    {
+      label: 'Most recent latency',
+      value: formatLatency(latestLatencyMs),
+      description: 'Latency from the newest query in recent conversations.',
     },
   ];
 
@@ -629,6 +656,17 @@ export default function App(): JSX.Element {
               <div>
                 <p className="section-kicker">Admin dashboard</p>
                 <h2>Conversation review</h2>
+                {adminToken && (
+                  <span
+                    className={
+                      hasDangerInRecentQueries
+                        ? 'dashboard-safety-tag dashboard-safety-tag--danger'
+                        : 'dashboard-safety-tag dashboard-safety-tag--clear'
+                    }
+                  >
+                    {hasDangerInRecentQueries ? 'DANGER' : 'CLEAR'}
+                  </span>
+                )}
               </div>
               <div className="dashboard__header-actions">
                 <button
