@@ -351,8 +351,8 @@ export default function App(): JSX.Element {
             src={cppLogo}
           />
           <div>
-            <p className="brand-lockup__eyebrow">Bronco Knowledge Assistant</p>
-            <h1 className="brand-lockup__title">Cal Poly Pomona support hub</h1>
+            <p className="brand-lockup__eyebrow">Here to Guide Broncos to the Right Direction</p>
+            <h1 className="brand-lockup__title"> Kellog's Compass</h1>
           </div>
         </button>
 
@@ -465,7 +465,7 @@ export default function App(): JSX.Element {
 
             <section className="landing-detail">
               <div className="landing-detail__intro">
-                <h3>Start with a question and let us help guide the way.</h3>
+                <h3>Start with a question <br></br>and let us help guide the way.</h3>
               </div>
 
               <div className="landing-detail__steps">
@@ -500,7 +500,7 @@ export default function App(): JSX.Element {
                   onClick={() => navigateToView('home')}
                   type="button"
                 >
-                  Ask Bronco Assistant first
+                  Ask Kellogg's Compass first
                 </button>
               </div>
             </section>
@@ -511,7 +511,7 @@ export default function App(): JSX.Element {
           <section className="workspace-grid">
             <div className="workspace-card workspace-card--feature">
               <p className="section-kicker">Welcome!</p>
-              <h2>Bronco Assistant</h2>
+              <h2>Kellogg's Compass</h2>
               <p>
                 Let the assistant help with admissions, advising, dining,
                 parking, and everyday questions about campus life.
@@ -602,7 +602,7 @@ export default function App(): JSX.Element {
               onClick={() => setIsChatOpen(true)}
               type="button"
             >
-              <span className="chat-launcher__label">Ask Bronco Assistant</span>
+              <span className="chat-launcher__label">Ask Kellogg's Compass</span>
               <span className="chat-launcher__meta">
                 Chat popup for campus questions
               </span>

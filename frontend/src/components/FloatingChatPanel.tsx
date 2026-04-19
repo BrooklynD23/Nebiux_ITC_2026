@@ -30,7 +30,7 @@ export function FloatingChatPanel({
       <div className="chat-modal__header">
         <div>
           <p className="chat-modal__eyebrow">Student support popup</p>
-          <h3 className="chat-modal__title">Bronco Assistant</h3>
+          <h3 className="chat-modal__title">Kellog's Compass</h3>
         </div>
 
         <div className="chat-modal__actions">
